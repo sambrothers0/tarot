@@ -1,102 +1,99 @@
-# Portal Mapper — Frontend
+# Tarot — Frontend
 
-React 19 + TypeScript + Vite frontend for uploading Minecraft save files and
-visualizing block locations on an interactive map.
+React 19 + TypeScript + Vite UI. Opens a Minecraft save zip, drives a pool of
+WebAssembly workers that scan it, and plots the results on an interactive map.
+Everything happens on the visitor's machine — there is no upload and no backend.
 
 ## Requirements
 
 - Node.js 20+ (required by Vite 8)
+- A [Rust toolchain](https://rustup.rs) with the `wasm32-unknown-unknown` target
+  and [`wasm-pack`](https://github.com/wasm-bindgen/wasm-pack), to build
+  [`../scanner`](../scanner/README.md)
 
 ## Setup
 
 ```bash
+rustup target add wasm32-unknown-unknown
 npm install
+npm run build:wasm     # scanner/ -> src/wasm/ (generated, gitignored)
 ```
+
+`src/wasm/` holds the generated bindings *and their `.d.ts`*, so it must exist
+before `npm run dev`, `npm run build`, or `tsc` will work. Re-run `build:wasm`
+whenever the Rust changes; `npm run build` does it for you.
 
 ## Running
 
 ```bash
-npm run dev
+npm run dev        # http://localhost:5173
 ```
 
-The app will be available at `http://localhost:5173`.
-
-The dev server expects the backend running at `http://localhost:8000`. See the [backend README](../backend/README.md) for setup.
-
-### Pointing at a different backend
-
-The API URL is read from the `VITE_API_URL` env var at build/dev time, falling
-back to `http://localhost:8000/parse-blocks`. For a deployed backend, set it
-before building:
+## Other commands
 
 ```bash
-VITE_API_URL=https://your-host/parse-blocks npm run build
-```
-
-## Other Commands
-
-```bash
-npm run build    # production build → dist/
-npm run preview  # preview the production build locally
-npm run lint     # run ESLint
+npm run build:wasm # rebuild the wasm scanner only
+npm run build      # build:wasm, then tsc -b, then vite build -> dist/
+npm run preview    # preview the production build locally
+npm run lint       # run ESLint
 ```
 
 ## Deploying to GitHub Pages
 
-The frontend is a static bundle, so it's hosted on GitHub Pages and redeployed
-automatically. The workflow is
+The app is a static bundle, redeployed automatically by
 [`.github/workflows/deploy-frontend.yml`](../.github/workflows/deploy-frontend.yml):
-on every push to `master` that touches `frontend/**`, it runs `npm ci` +
-`npm run build` and publishes `frontend/dist`. Live URL:
-`https://sambrothers0.github.io/portal-mapper/`. (Trigger it manually any time
+on every push to `master` touching `frontend/**` or `scanner/**`, it installs
+the wasm target and `wasm-pack`, runs `cargo test`, then `npm ci && npm run
+build`, and publishes `frontend/dist`. Live URL:
+`https://sambrothers0.github.io/tarot/`. (Trigger it manually any time
 from the Actions tab via **Run workflow**.)
 
-**One-time setup (in the GitHub repo):**
+**One-time setup:** Settings → Pages → Build and deployment → Source: "GitHub
+Actions". (Not the older "Deploy from a branch" mode.) That is the whole of it —
+with no backend there is no API URL, no CORS, and no mixed-content problem.
 
-1. **Settings → Pages → Build and deployment → Source: "GitHub Actions".**
-   (Not the older "Deploy from a branch" mode.)
-2. **Settings → Secrets and variables → Actions → Variables →** add a repository
-   *variable* (not a secret) named `VITE_API_URL` pointing at the deployed
-   backend, e.g. `https://your-backend-host/parse-blocks`. If it's left unset the
-   build still succeeds but the bundle falls back to
-   `http://localhost:8000/parse-blocks`, so the live site can't reach a backend
-   until this is set and the workflow re-runs.
+**The one build-time detail that makes Pages work:** a project site is served
+from a subpath (`/tarot/`), so every asset URL — including the `.wasm`
+and the worker chunks — must be prefixed with it. The workflow sets
+`VITE_BASE=/tarot/`, which `vite.config.ts` reads into Vite's `base`.
+Local dev and a plain `npm run build` default to `/`, so nothing changes
+locally. **If the repo is ever renamed, update `VITE_BASE` in the workflow to
+match**, or it 404s on assets.
 
-**Two build-time details that make Pages work:**
-
-- **Base path.** A project site is served from a subpath
-  (`/portal-mapper/`), so all asset URLs must be prefixed with it. The workflow
-  sets `VITE_BASE=/portal-mapper/`, which `vite.config.ts` reads into Vite's
-  `base`. Local dev and a plain `npm run build` default to `/`, so nothing
-  changes locally. **If the repo is ever renamed, update `VITE_BASE` in the
-  workflow to match** (or it 404s on assets).
-- **Backend URL is compiled in.** `VITE_API_URL` is read at *build* time, so
-  changing the backend address means re-running the workflow, not just editing a
-  setting. The backend must also (a) allow this Pages origin via
-  `ALLOWED_ORIGINS`, and (b) be served over **HTTPS** — Pages is HTTPS-only, and
-  a browser blocks an HTTPS page from calling an HTTP API (mixed content).
+Pages serves `.wasm` as `application/wasm` already, and Vite emits it as a
+hashed asset, so no extra configuration is needed. The module is ~45 KB gzipped.
 
 ## How it works
 
-1. **Pick a save + dimension.** The selected `.zip` is validated against the
-   4 GB limit on both select and submit.
-2. **Filter in the browser** (`src/workers/regionFilter.worker.ts`). Before any
-   upload, a web worker pares the save down to just the chosen dimension's
-   `region/*.mca` (+ `.mcc`) files, repacked with the original paths preserved.
-   This commonly shrinks a multi-GB upload by an order of magnitude. The blob is
-   passed by reference so a 4 GB save is never read into a main-thread buffer.
-3. **Upload + scan.** The filtered zip is POSTed to the backend with a real
-   byte-level progress bar; once it lands, the backend scans and returns matches.
+1. **Pick a save + dimension.** The selected `.zip` is passed to the coordinator
+   worker by reference, so it is never read on the main thread.
+2. **Open** (`src/workers/worldScan.worker.ts` + `src/workers/zip.ts`). The
+   worker reads the zip's central directory — the index at the tail of the
+   archive — and picks out just the chosen dimension's `region/*.mca` files
+   (plus any `.mcc` oversized-chunk sidecars). Everything else in a save is
+   irrelevant to a block search and is never read. The archive itself stays on
+   disk: members are fetched by absolute offset with `Blob.slice()`, so opening
+   a 1.2 GB save costs kilobytes, not 1.2 GB.
+3. **Scan** (`src/workers/regionScan.worker.ts` + [`../scanner`](../scanner)).
+   Region files go out to a pool of workers, each with its own WebAssembly
+   instance. Region files are read **a few ahead of the workers, never all at
+   once** — one dimension of a large save is ~1.2 GB, and buffering it would
+   take the tab down. Progress is a real regions-done/total bar.
 4. **Map** (`src/WorldMap.tsx`). Matches are plotted on a single canvas on
    Minecraft's X/Z plane — chunk-aligned grid, drag-to-pan, wheel/pinch zoom,
    auto-fit, hover-for-coordinates.
 
-The UI runs through four phases — `idle → filtering → uploading → processing` —
-reflected in both the on-page indicators and the browser tab title.
+The UI runs three phases — `idle → opening → scanning` — reflected in both the
+on-page indicators and the browser tab title.
 
-> **Important:** the worker's `regionDimension()` is an exact mirror of the
-> backend's `_region_dimension()`. If one changes, change the other — the
-> backend stays the source of truth for how a path maps to a dimension.
+> Coordinates cross the wasm boundary as a flat `Int32Array` of `x, y, z`
+> triples, not as objects — a dense block yields hundreds of millions of
+> matches, and per-match marshalling would cost more than the scan. They become
+> `[{x, y, z}]` exactly once, in `App.tsx`.
+
+Each worker gets its own wasm instance rather than sharing one, so no
+`SharedArrayBuffer` and no cross-origin isolation is needed — which matters,
+because GitHub Pages cannot set the COOP/COEP headers that would require.
 
 ## Notable toolchain
 

@@ -2,21 +2,26 @@ import { useEffect, useState } from 'react'
 import { PortalLoader } from './PortalLoader'
 import { WorldMap } from './WorldMap'
 import type { BlockMatch } from './WorldMap'
-import type { RegionFilterRequest, RegionFilterResponse } from './workers/regionFilter.worker'
+import type { WorldScanRequest, WorldScanResponse } from './workers/worldScan.worker'
+import GithubIcon from './assets/github.svg?react'
+import CoffeeIcon from './assets/coffee.svg?react'
 
-type ParseResult = {
-  block_type: string
+type ScanResult = {
+  blockType: string
   dimension: string
   count: number
   truncated: boolean
   matches: BlockMatch[]
 }
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/parse-blocks'
 const DEFAULT_BLOCK = 'minecraft:nether_portal'
 
-// Which dimension's region files to scan. The `id` is the value the backend
-// expects in the `dimension` form field; the `label` is what players call it.
+// How many coordinates the map will carry. The scan always reports the true
+// count; this only bounds what gets drawn and copied, because a block like
+// stone occurs hundreds of millions of times in one save.
+const MAX_MATCHES = 100_000
+
+// Which dimension's region files to scan.
 const DIMENSIONS = [
   { id: 'overworld', label: 'Overworld' },
   { id: 'nether', label: 'Nether' },
@@ -26,128 +31,68 @@ type Dimension = (typeof DIMENSIONS)[number]['id']
 const DEFAULT_DIMENSION: Dimension = 'overworld'
 const dimensionLabel = (id: string) => DIMENSIONS.find((d) => d.id === id)?.label ?? id
 
-// Absolute ceiling on the *selected* file — the hard cap nobody can exceed.
-const MAX_FILE_BYTES = 4 * 1024 * 1024 * 1024 // 4 GB
-const MAX_FILE_LABEL = '4 GB'
+// Display-only mirror of the scanner's own namespacing (`stone` →
+// `minecraft:stone`), so the result line echoes what was actually searched for.
+const normalizeBlockType = (value: string) =>
+  value.includes(':') ? value : `minecraft:${value}`
 
-// Tiered limits on the *uploaded* zip (the browser filters the save to one
-// dimension first, so this is checked on the filtered blob — the same number the
-// backend enforces on Content-Length). Visitors get the public limit; entering a
-// valid access code raises it to the full limit. Mirror of the backend tiers.
-const PUBLIC_UPLOAD_BYTES = 250 * 1024 * 1024 // 250 MB
-const FULL_UPLOAD_BYTES = MAX_FILE_BYTES // 4 GB
-const ACCESS_CODE_STORAGE_KEY = 'portal-mapper-access-code'
-const ACCESS_HEADER = 'X-Access-Key'
+type Phase = 'idle' | 'opening' | 'scanning'
 
-// Shown once the upload finishes and the server is grinding through region
-// files. There's no real progress signal from the parse step, so instead of a
-// fake bar we cycle these while it works. Keep them grounded — a touch of the
-// tarot/divination theme, not full fortune-teller.
-const PROCESSING_MESSAGES = [
-  'Reading what the world remembers',
-  'Tracing chunks across the overworld',
-  'Following portals through the dark',
-  'Sifting the region files, block by block',
-  'Charting the spaces in between',
-]
-
-const formatSize = (bytes: number) =>
-  bytes >= 1024 * 1024 * 1024
-    ? `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
-    : `${Math.round(bytes / 1024 / 1024)} MB`
-
-type Phase = 'idle' | 'filtering' | 'uploading' | 'processing'
-
-// Run the selected save through the region-filter worker, returning a zip that
-// holds only the chosen dimension's region files. This is the big production
-// win: a multi-GB save usually carries a few hundred MB of region files for one
-// dimension, so we upload that instead of the whole world. Paths are preserved
-// so the backend still derives the dimension itself.
-function filterDimension(
+// Run the save through the scan worker. The whole scan happens on this
+// machine: the coordinator worker opens the zip and hands one region file at a
+// time to a pool of WebAssembly workers. Nothing is uploaded.
+function scanWorld(
   file: File,
   dimension: Dimension,
-  onProgress: (percent: number) => void,
-): Promise<File> {
+  blockType: string,
+  onOpened: (regionCount: number) => void,
+  onProgress: (done: number, total: number) => void,
+): Promise<{ count: number; truncated: boolean; matches: BlockMatch[] }> {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./workers/regionFilter.worker.ts', import.meta.url), {
+    const worker = new Worker(new URL('./workers/worldScan.worker.ts', import.meta.url), {
       type: 'module',
     })
 
-    worker.onmessage = (event: MessageEvent<RegionFilterResponse>) => {
+    worker.onmessage = (event: MessageEvent<WorldScanResponse>) => {
       const data = event.data
-      // Progress ticks keep streaming while the worker repacks — report and wait
-      // for the terminal 'filtered'/'error' message before tearing the worker down.
+      // 'opened' and 'progress' keep streaming while the scan runs — report and
+      // wait for the terminal 'done'/'error' before tearing the worker down.
+      if (data.type === 'opened') {
+        onOpened(data.regionCount)
+        return
+      }
       if (data.type === 'progress') {
-        onProgress(data.percent)
+        onProgress(data.done, data.total)
         return
       }
       worker.terminate()
-      if (data.type === 'filtered') {
-        // Keep a .zip name so the backend's extension check passes.
-        resolve(new File([data.blob], `filtered-${file.name}`, { type: 'application/zip' }))
+      if (data.type === 'done') {
+        // The scanner returns a flat run of x,y,z triples — building objects
+        // per match inside wasm and marshalling them out is far slower than
+        // one Int32Array. Unpack once, here, so nothing downstream has to know.
+        const { coords } = data
+        const matches: BlockMatch[] = new Array(coords.length / 3)
+        for (let i = 0, m = 0; i < coords.length; i += 3, m += 1) {
+          matches[m] = { x: coords[i], y: coords[i + 1], z: coords[i + 2] }
+        }
+        resolve({ count: data.count, truncated: data.truncated, matches })
       } else {
         reject(new Error(data.message))
       }
     }
     worker.onerror = (event) => {
       worker.terminate()
-      reject(new Error(event.message || 'Failed to read the save in the browser'))
+      reject(new Error(event.message || 'Failed to scan the save in the browser'))
     }
 
-    const request: RegionFilterRequest = {
-      type: 'filter',
+    const request: WorldScanRequest = {
+      type: 'scan',
       file,
-      fileName: file.name,
       dimension,
+      blockType,
+      limit: MAX_MATCHES,
     }
     worker.postMessage(request)
-  })
-}
-
-// Upload via XHR (not fetch) so we get a real byte-level progress event for the
-// upload, then flip to the "processing" phase the moment the bytes are all sent.
-function postWithUploadProgress(
-  url: string,
-  form: FormData,
-  accessCode: string,
-  onProgress: (percent: number) => void,
-  onUploaded: () => void,
-): Promise<ParseResult> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', url)
-    // Unlocks the larger upload limit server-side. Omitted when blank so visitors
-    // don't send an empty header. It's a soft gate, not real auth.
-    if (accessCode) xhr.setRequestHeader(ACCESS_HEADER, accessCode)
-
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        onProgress(Math.round((event.loaded / event.total) * 100))
-      }
-    }
-    // Fires when the request body is fully sent — upload done, server now working.
-    xhr.upload.onload = () => {
-      onProgress(100)
-      onUploaded()
-    }
-
-    xhr.onload = () => {
-      let payload: unknown = null
-      try {
-        payload = JSON.parse(xhr.responseText)
-      } catch {
-        // fall through to status-based error below
-      }
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(payload as ParseResult)
-        return
-      }
-      const detail = (payload as { detail?: string } | null)?.detail
-      reject(new Error(detail ?? `Request failed with status ${xhr.status}`))
-    }
-    xhr.onerror = () => reject(new Error('Network error — could not reach the server'))
-
-    xhr.send(form)
   })
 }
 
@@ -156,28 +101,14 @@ function App() {
   const [blockType, setBlockType] = useState(DEFAULT_BLOCK)
   const [dimension, setDimension] = useState<Dimension>(DEFAULT_DIMENSION)
   const [phase, setPhase] = useState<Phase>('idle')
-  const [uploadProgress, setUploadProgress] = useState(0)
-  const [messageIndex, setMessageIndex] = useState(0)
-  const [messageVisible, setMessageVisible] = useState(true)
-  const [result, setResult] = useState<ParseResult | null>(null)
+  const [regionsDone, setRegionsDone] = useState(0)
+  const [regionsTotal, setRegionsTotal] = useState(0)
+  const [result, setResult] = useState<ScanResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // Set when the error is specifically about file size, so we can offer the
-  // trim-your-world hint instead of a bare "too big" message.
-  const [oversize, setOversize] = useState(false)
   const [copied, setCopied] = useState(false)
-  // Optional access code that raises the upload limit. Persisted so trusted users
-  // only enter it once. Set true when a too-large upload is the reason for an
-  // error, to surface the "enter a code" hint instead of the MCA-Selector one.
-  const [accessCode, setAccessCode] = useState(
-    () => localStorage.getItem(ACCESS_CODE_STORAGE_KEY) ?? '',
-  )
-  const [needsAccessCode, setNeedsAccessCode] = useState(false)
-  const [showAccessCode, setShowAccessCode] = useState(false)
 
   const busy = phase !== 'idle'
-  const hasAccessCode = accessCode.trim().length > 0
-  const uploadLimitBytes = hasAccessCode ? FULL_UPLOAD_BYTES : PUBLIC_UPLOAD_BYTES
-  const uploadLimitLabel = hasAccessCode ? '4 GB' : '250 MB'
+  const percent = regionsTotal > 0 ? Math.round((regionsDone / regionsTotal) * 100) : 0
 
   const copyCoordinates = async () => {
     if (!result) return
@@ -193,37 +124,8 @@ function App() {
   // Reflect the current phase in the browser tab title so progress is legible
   // even when the tab is backgrounded during a long scan.
   useEffect(() => {
-    const suffix =
-      phase === 'filtering'
-        ? 'Compressing'
-        : phase === 'uploading'
-          ? 'Uploading'
-          : phase === 'processing'
-            ? 'Processing'
-            : 'Home'
+    const suffix = phase === 'opening' ? 'Opening' : phase === 'scanning' ? 'Scanning' : 'Home'
     document.title = `Tarot - ${suffix}`
-  }, [phase])
-
-  // While the server is processing, rotate the flavor text with a fade: drop to
-  // opacity 0, swap the line once it's faded out, then fade the new line back in.
-  // The swap timeout is tracked alongside the interval so both are torn down on
-  // cleanup — otherwise a pending swap could fire after the phase has moved on.
-  // The index/visibility are reset where the phase flips to 'processing' (an
-  // event callback), not here — setState in an effect body is disallowed.
-  useEffect(() => {
-    if (phase !== 'processing') return
-    let swap: ReturnType<typeof setTimeout> | undefined
-    const interval = setInterval(() => {
-      setMessageVisible(false)
-      swap = setTimeout(() => {
-        setMessageIndex((index) => (index + 1) % PROCESSING_MESSAGES.length)
-        setMessageVisible(true)
-      }, 400)
-    }, 2800)
-    return () => {
-      clearInterval(interval)
-      if (swap) clearTimeout(swap)
-    }
   }, [phase])
 
   const handleSubmit = async () => {
@@ -232,64 +134,39 @@ function App() {
       return
     }
 
-    if (selectedFile.size > MAX_FILE_BYTES) {
-      setError(`That file is ${formatSize(selectedFile.size)}. The maximum is ${MAX_FILE_LABEL}.`)
-      setOversize(true)
-      return
-    }
-
-    setPhase('filtering')
-    setUploadProgress(0)
-    setMessageIndex(0)
-    setMessageVisible(true)
+    setPhase('opening')
+    setRegionsDone(0)
+    setRegionsTotal(0)
     setError(null)
-    setOversize(false)
-    setNeedsAccessCode(false)
     setCopied(false)
     setResult(null)
 
     try {
-      // Strip the save to just this dimension's region files before uploading.
-      // The compress/trim phase drives the bar 0→100, then we reset it so the
-      // upload phase tracks bytes sent from zero.
-      const filtered = await filterDimension(selectedFile, dimension, setUploadProgress)
-
-      // The limit applies to what actually gets uploaded — the filtered zip — so
-      // we check it here, after compression, with the same number the backend
-      // enforces. Visitors over 250 MB are pointed at the access code.
-      if (filtered.size > uploadLimitBytes) {
-        setError(
-          `The ${dimensionLabel(dimension)} region data is ${formatSize(filtered.size)}, over the ${uploadLimitLabel} upload limit.`,
-        )
-        setNeedsAccessCode(!hasAccessCode)
-        return
-      }
-
-      setPhase('uploading')
-      setUploadProgress(0)
-      const form = new FormData()
-      form.append('file', filtered)
-      form.append('block_type', blockType)
-      form.append('dimension', dimension)
-
-      const parsed = await postWithUploadProgress(
-        API_URL,
-        form,
-        accessCode.trim(),
-        setUploadProgress,
-        () => {
-          // Upload just finished — start the flavor-text rotation from the top as
-          // we enter the processing phase (reset here, in this event callback, so
-          // the effect body stays free of setState).
-          setMessageIndex(0)
-          setMessageVisible(true)
-          setPhase('processing')
+      const scan = await scanWorld(
+        selectedFile,
+        dimension,
+        blockType,
+        (regionCount) => {
+          // The zip is open and the region count is known, so the bar can go
+          // from indeterminate to real. Phase flips here, in an event callback,
+          // to keep setState out of effect bodies.
+          setRegionsTotal(regionCount)
+          setPhase('scanning')
+        },
+        (done, total) => {
+          setRegionsDone(done)
+          setRegionsTotal(total)
         },
       )
-      setResult(parsed)
-    } catch (submissionError) {
-      setError(submissionError instanceof Error ? submissionError.message : 'Something went wrong')
-      setOversize(false)
+      setResult({
+        blockType: normalizeBlockType(blockType),
+        dimension,
+        count: scan.count,
+        truncated: scan.truncated,
+        matches: scan.matches,
+      })
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : 'Something went wrong')
     } finally {
       setPhase('idle')
     }
@@ -330,21 +207,14 @@ function App() {
                 type="file"
                 accept=".zip,application/zip"
                 onChange={(event) => {
-                  const file = event.target.files?.[0] ?? null
-                  if (file && file.size > MAX_FILE_BYTES) {
-                    setError(`That file is ${formatSize(file.size)}. The maximum is ${MAX_FILE_LABEL}.`)
-                    setOversize(true)
-                    setSelectedFile(null)
-                    event.target.value = ''
-                    return
-                  }
                   setError(null)
-                  setOversize(false)
-                  setSelectedFile(file)
+                  setSelectedFile(event.target.files?.[0] ?? null)
                 }}
                 className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border-0 file:bg-violet-400/20 file:px-4 file:py-2 file:text-sm file:font-medium file:text-violet-100 hover:bg-white/7"
               />
-              <span className="text-xs text-slate-500">Zipped save folder · up to {uploadLimitLabel}</span>
+              <span className="text-xs text-slate-500">
+                Zipped save folder · scanned on your device, never uploaded
+              </span>
             </label>
 
             <label className="grid gap-2 text-left">
@@ -387,139 +257,49 @@ function App() {
               </div>
             </div>
 
-            {/* Optional access code — unlocks the larger upload limit. Stored
-                locally so trusted users only ever type it once. */}
-            <label className="grid gap-2 text-left">
-              <span className="text-xs font-medium uppercase tracking-[0.35em] text-violet-200/70">
-                Access code{' '}
-                <span className="lowercase tracking-normal text-slate-500">(optional)</span>
-              </span>
-              <div className="relative">
-                <input
-                  type={showAccessCode ? 'text' : 'password'}
-                  value={accessCode}
-                  autoComplete="off"
-                  disabled={busy}
-                  onChange={(event) => {
-                    const value = event.target.value
-                    setAccessCode(value)
-                    setNeedsAccessCode(false)
-                    if (value.trim()) localStorage.setItem(ACCESS_CODE_STORAGE_KEY, value)
-                    else localStorage.removeItem(ACCESS_CODE_STORAGE_KEY)
-                  }}
-                  placeholder="Raises your upload limit to 4 GB"
-                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 pr-12 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-violet-300/40 disabled:opacity-60"
-                />
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setShowAccessCode((shown) => !shown)}
-                  aria-label={showAccessCode ? 'Hide access code' : 'Show access code'}
-                  aria-pressed={showAccessCode}
-                  className="absolute inset-y-0 right-0 flex items-center px-4 text-slate-400 transition hover:text-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {showAccessCode ? (
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-4 w-4"
-                      aria-hidden="true"
-                    >
-                      <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
-                      <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
-                      <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
-                      <line x1="2" x2="22" y1="2" y2="22" />
-                    </svg>
-                  ) : (
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-4 w-4"
-                      aria-hidden="true"
-                    >
-                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            </label>
-
             <button
               type="button"
               onClick={handleSubmit}
               disabled={busy}
               className="rounded-full border border-violet-300/20 bg-violet-500/10 px-5 py-3 text-sm font-medium text-violet-100 shadow-sm transition hover:bg-violet-400/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {phase === 'filtering'
-                ? 'Preparing...'
-                : phase === 'uploading'
-                  ? 'Uploading...'
-                  : phase === 'processing'
-                    ? 'Scanning...'
-                    : 'Scan world'}
+              {phase === 'opening' ? 'Opening save...' : phase === 'scanning' ? 'Scanning...' : 'Scan world'}
             </button>
           </div>
 
-          {/* Filtering phase — paring the save down to one dimension in-browser,
-              with a real progress bar for the compress/trim work. */}
-          {phase === 'filtering' ? (
+          {/* Opening phase — reading the zip's index to find out how many region
+              files this dimension has. No total yet, so the bar sweeps. */}
+          {phase === 'opening' ? (
             <div className="mt-6 text-left">
               <div className="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-[0.35em] text-violet-200/70">
-                <span>Compressing world</span>
-                <span className="tabular-nums text-violet-100">{uploadProgress}%</span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full border border-white/10 bg-white/5">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-violet-400 to-indigo-400 shadow-[0_0_12px_rgba(168,85,247,0.6)] transition-all duration-300"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
-              <p className="mt-2 text-xs text-slate-500">
-                Paring your world down to the {dimensionLabel(dimension)} — only those region files travel.
-              </p>
-            </div>
-          ) : null}
-
-          {/* Upload phase — real, byte-level progress for the upload only. */}
-          {phase === 'uploading' ? (
-            <div className="mt-6 text-left">
-              <div className="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-[0.35em] text-violet-200/70">
-                <span>Uploading world</span>
-                <span className="tabular-nums text-violet-100">{uploadProgress}%</span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full border border-white/10 bg-white/5">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-violet-400 to-indigo-400 shadow-[0_0_12px_rgba(168,85,247,0.6)] transition-all duration-300"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
-              <p className="mt-2 text-xs text-slate-500">Sending your save to the server — the scan begins once it lands.</p>
-            </div>
-          ) : null}
-
-          {/* Processing phase — the backend gives no percent, so the determinate
-              bar is replaced by an indeterminate sweep with cycling flavor text. */}
-          {phase === 'processing' ? (
-            <div className="mt-6 text-left">
-              <div className="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-[0.35em] text-violet-200/70">
-                <span>Scanning world</span>
+                <span>Opening save</span>
               </div>
               <div className="relative h-2 w-full overflow-hidden rounded-full border border-white/10 bg-white/5">
                 <span className="indeterminate-bar" />
               </div>
-              <p
-                className={`mt-2 text-xs text-violet-100/90 transition-opacity duration-300 ${messageVisible ? 'opacity-100' : 'opacity-0'}`}
-              >
-                {PROCESSING_MESSAGES[messageIndex]}
+              <p className="mt-2 text-xs text-slate-500">
+                Reading what the world remembers — everything stays on this device.
+              </p>
+            </div>
+          ) : null}
+
+          {/* Scanning phase — one tick per region file, so this is a real
+              determinate bar rather than a guess. */}
+          {phase === 'scanning' ? (
+            <div className="mt-6 text-left">
+              <div className="mb-2 flex items-center justify-between text-xs font-medium uppercase tracking-[0.35em] text-violet-200/70">
+                <span>Scanning world</span>
+                <span className="tabular-nums text-violet-100">{percent}%</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full border border-white/10 bg-white/5">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-violet-400 to-indigo-400 shadow-[0_0_12px_rgba(168,85,247,0.6)] transition-all duration-300"
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                {regionsDone.toLocaleString()} of {regionsTotal.toLocaleString()}{' '}
+                {dimensionLabel(dimension)} region files read.
               </p>
             </div>
           ) : null}
@@ -527,35 +307,6 @@ function App() {
           {error ? (
             <div className="mt-5 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
               <p>{error}</p>
-              {needsAccessCode ? (
-                <p className="mt-2 text-red-100/80">
-                  Have an access code? Enter it above to upload worlds up to 4 GB. Otherwise, trim
-                  the world down with{' '}
-                  <a
-                    href="https://github.com/Querz/mcaselector"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline underline-offset-2 hover:text-white"
-                  >
-                    MCA Selector
-                  </a>
-                  .
-                </p>
-              ) : null}
-              {oversize ? (
-                <p className="mt-2 text-red-100/80">
-                  Too large to upload? Trim away unexplored chunks with{' '}
-                  <a
-                    href="https://github.com/Querz/mcaselector"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline underline-offset-2 hover:text-white"
-                  >
-                    MCA Selector
-                  </a>
-                  , then re-zip your save and try again.
-                </p>
-              ) : null}
             </div>
           ) : null}
 
@@ -564,7 +315,7 @@ function App() {
               <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
                 <p>
                   Found {result.count.toLocaleString()} matching blocks for{' '}
-                  <span className="text-violet-200">{result.block_type}</span> in the{' '}
+                  <span className="text-violet-200">{result.blockType}</span> in the{' '}
                   <span className="text-violet-200">{dimensionLabel(result.dimension)}</span>.
                 </p>
                 {result.truncated ? (
@@ -606,7 +357,7 @@ function App() {
               {busy ? (
                 <PortalLoader />
               ) : (
-                <p className="text-xs text-slate-600">Upload a world zip and hit Scan to generate the map</p>
+                <p className="text-xs text-slate-600">Choose a world zip and hit Scan to generate the map</p>
               )}
             </div>
           )}
@@ -639,17 +390,26 @@ function App() {
           </a>
         </p>
 
+        <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-400 sm:text-base">
+          <a
+            href="https://sambrothers0.github.io/tarot/docs"
+            className="text-violet-200 underline underline-offset-4 transition hover:text-violet-100"
+            target="_blank"
+            rel="noreferrer"
+          >
+            How it works
+          </a>
+        </p>
+
         <div className="mx-auto mt-6 flex items-center justify-center gap-3">
           <a
-            href="https://github.com/sambrothers0/portal-mapper"
+            href="https://github.com/sambrothers0/tarot"
             className="rounded-full p-1.5 text-violet-200/70 transition hover:bg-white/10 hover:text-violet-100"
             target="_blank"
             rel="noreferrer"
             aria-label="GitHub"
           >
-            <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-              <path d="M12 .5C5.37.5 0 5.78 0 12.29c0 5.21 3.44 9.63 8.21 11.19.6.11.82-.25.82-.56 0-.28-.01-1.02-.02-2-3.34.71-4.04-1.59-4.04-1.59-.55-1.38-1.34-1.75-1.34-1.75-1.09-.74.08-.73.08-.73 1.21.08 1.84 1.23 1.84 1.23 1.07 1.8 2.81 1.28 3.5.98.11-.76.42-1.28.76-1.57-2.67-.3-5.47-1.31-5.47-5.83 0-1.29.47-2.34 1.23-3.17-.12-.3-.53-1.52.12-3.17 0 0 1-.32 3.3 1.21.96-.26 1.98-.39 3-.4 1.02.01 2.04.14 3 .4 2.3-1.53 3.3-1.21 3.3-1.21.65 1.65.24 2.87.12 3.17.77.83 1.23 1.88 1.23 3.17 0 4.53-2.81 5.53-5.49 5.82.43.36.81 1.08.81 2.18 0 1.57-.01 2.84-.01 3.23 0 .31.21.68.83.56C20.57 21.91 24 17.49 24 12.29 24 5.78 18.63.5 12 .5z" />
-            </svg>
+            <GithubIcon className="h-4 w-4" aria-hidden="true" />
           </a>
           <div className="h-4 w-px bg-violet-300/20" />
           <a
@@ -659,24 +419,13 @@ function App() {
             rel="noreferrer"
             aria-label="Buy me a coffee"
           >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="h-4 w-4"
-              aria-hidden="true"
-            >
-              <path d="M17 8h1a4 4 0 1 1 0 8h-1" />
-              <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" />
-              <line x1="6" x2="6" y1="2" y2="4" />
-              <line x1="10" x2="10" y1="2" y2="4" />
-              <line x1="14" x2="14" y1="2" y2="4" />
-            </svg>
+            <CoffeeIcon className="h-4 w-4" aria-hidden="true" />
           </a>
         </div>
+
+        <p className="mx-auto mt-8 max-w-2xl text-center text-xs text-slate-600">
+          Tarot is pronounced "TARE-oh"
+        </p>
       </footer>
     </main>
   )

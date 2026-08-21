@@ -1,114 +1,69 @@
-# Portal Mapper — Backend
+# backend — the reference implementation
 
-FastAPI service that accepts a zipped Minecraft save folder and returns the
-coordinates of every block matching a given type (defaults to
-`minecraft:nether_portal`).
+**This is not deployed and is not part of the app.** The scan runs in the
+browser now (see `scanner/`), so there is no server in the request path and
+nothing gets uploaded.
 
-It's built to handle large saves: the upload is read straight from disk (the
-zip — up to 4 GB — is never held in memory), only the `region/*.mca` files are
-read out of it, and those region files are parsed in parallel across every CPU
-core. NBT decoding is done by an in-repo, pure-stdlib scanner (`fastnbt.py`) —
-no native NBT library, so nothing needs compiling on the target (ARM) host.
+What lives here is the original Python scanner, kept for one reason: `scanner/`
+is a *port* of it, and a port is only correct if it agrees with the original.
+This is the oracle that proves it does.
 
-## Requirements
+- `fastnbt.py` — selective NBT walk. Reads each section's block palette first
+  and only decodes the packed block array when the target actually appears in
+  that palette. Pure standard library; no third-party NBT dependency.
+- `parser.py` — region-file (`.mca`) sector-table walk and per-chunk
+  decompression, including the 64 MB per-chunk cap that the Rust port keeps.
+- `crosscheck.py` — prints a scan in the same format as `scanner`'s `oracle`
+  binary, so the two can be compared with `diff`.
+- `main.py` — the old FastAPI service, kept runnable for spot checks against a
+  whole zip. The public-endpoint hardening it used to carry (tiered upload
+  ceilings, access codes, a total decompressed-bytes cap, a scan concurrency
+  gate) is gone with the deployment it existed for.
 
-- Python 3.10+ (3.13 recommended; that's what the production image uses)
+## Running the cross-check
 
-## Setup
+This is the acceptance test for any change to either scanner. Unpack one
+dimension's `region/` directory out of a save first — `<world>/region`,
+`<world>/DIM-1/region`, or `<world>/DIM1/region`.
+
+```bash
+python backend/crosscheck.py <region-dir> <block_type> 100000 > py.txt
+cd scanner && cargo run --release --bin oracle -- <region-dir> <block_type> 100000 > rs.txt
+diff --strip-trailing-cr py.txt rs.txt        # must be empty
+```
+
+Both sides walk region files in sorted filename order and emit matches in scan
+order, so the outputs are byte-identical rather than merely equal as sets.
+Cover a sparse block, a dense one (which exercises the match cap and the
+`truncated` path), and one that is absent. See `scanner/README.md` for the
+known-good counts over `testing/`.
+
+## Running the old service
 
 ```bash
 pip install -r requirements.txt
-```
-
-Dependencies: `fastapi`, `uvicorn[standard]`, and `python-multipart` (multipart
-upload parsing). Region/chunk decoding is handled by the bundled `fastnbt.py`,
-which is pure standard library — there is no third-party NBT dependency.
-
-## Running
-
-Development (auto-reload):
-
-```bash
 uvicorn main:app --reload
 ```
 
-Production — run **without** `--reload`:
-
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-The API is available at `http://localhost:8000`. CORS is currently open to all
-origins. When running behind a reverse proxy, raise the proxy's body-size limit
-and read timeout to allow multi-gigabyte uploads.
-
-## How it works
-
-1. The multipart upload is streamed to Starlette's spooled temp file, so a 4 GB
-   archive never lands in RAM.
-2. Only `.mca`/`.mcc` members living directly inside a `region/` directory are
-   read out of the zip — straight into memory, no temp directory (Overworld
-   `region`, Nether `DIM-1/region`, End `DIM1/region`). Everything else —
-   `entities`, `poi`, `playerdata`, `level.dat`, … — is skipped, since it's
-   irrelevant to a block search and can be large.
-3. Each region file is an independent unit of work, fanned out across a
-   `ProcessPoolExecutor` (sized to `os.cpu_count()`) to sidestep the GIL on the
-   CPU-bound parsing. The pool is created once for the life of the process.
-4. Within each chunk, `fastnbt.py` walks the NBT byte stream selectively: it
-   reads each section's block palette first and only decodes the packed block
-   array when the target block actually appears in that palette — cheap for
-   sparse targets like portals.
-5. Results from every region file are merged and returned.
-
-There is no incremental progress reporting — the endpoint returns a single
-response once the whole scan completes.
-
-## Endpoints
-
-### `POST /parse-blocks`
-
-Accepts a multipart form upload.
-
-| Field | Type | Description |
-|---|---|---|
-| `file` | `.zip` file | Zipped Minecraft save folder (max 4 GB) |
-| `block_type` | string (optional) | Block type to search for (default: `minecraft:nether_portal`). A value without a namespace, e.g. `stone`, is normalized to `minecraft:stone`. |
-| `dimension` | string (optional) | Which dimension to scan: `overworld` (default), `nether`, or `end`. Only that dimension's region files are extracted and parsed. |
-
-The dimension is resolved from the save's directory layout: the Overworld's
-`region/` sits in the world root, the Nether's under `DIM-1/`, and the End's
-under `DIM1/`.
-
-**Example with curl:**
-
-```bash
-curl -X POST http://localhost:8000/parse-blocks \
-  -F "file=@my_world.zip" \
-  -F "block_type=minecraft:nether_portal" \
-  -F "dimension=nether"
-```
-
-**Response `200`:**
+`POST /parse-blocks` takes a multipart form: `file` (a zipped save), plus
+optional `block_type` (default `minecraft:nether_portal`; a bare id like
+`stone` is namespaced to `minecraft:stone`) and `dimension` (`overworld`,
+`nether`, or `end`). It responds with
 
 ```json
 {
   "block_type": "minecraft:nether_portal",
   "dimension": "nether",
   "count": 3,
-  "matches": [
-    { "x": 128, "y": 64, "z": -512 }
-  ]
+  "truncated": false,
+  "matches": [{ "x": 128, "y": 64, "z": -512 }]
 }
 ```
 
-Coordinates are absolute world coordinates.
+Coordinates are absolute world coordinates. Errors are `{ "detail": "..." }`
+with `400` (not a zip / bad dimension) or `422` (no region files for that
+dimension).
 
-**Error responses:**
-
-| Status | When |
-|---|---|
-| `400` | Upload is missing, not a `.zip`, not a valid zip archive, or `dimension` is not one of `overworld`/`nether`/`end` |
-| `413` | Upload exceeds the 4 GB limit (checked via `Content-Length`) |
-| `422` | No region files found for the requested dimension (not a valid save, or that dimension was never visited) |
-
-Each error body is `{ "detail": "<message>" }`.
+Because it now only ever runs locally against files you already trust, CORS is
+open and there are no upload limits. Do not put it back on the public internet
+without restoring the hardening — check the git history for what it had.

@@ -20,7 +20,11 @@ type View = {
   ppb: number
 }
 
-type Hovered = { x: number; y: number; z: number; sx: number; sz: number }
+// A hovered pin resolves to the whole column of matches sharing its X/Z. The
+// map drops Y when plotting, so a nether portal's stacked blocks all land on one
+// pixel and the tooltip is the only place their separate heights are legible.
+// `ys` is highest-first, so the tooltip reads top-down the way the column stands.
+type Hovered = { x: number; z: number; ys: number[]; sx: number; sz: number }
 
 const MIN_PPB = 1 / 1024
 const MAX_PPB = 8
@@ -39,6 +43,44 @@ function niceStep(ppb: number): number {
   return GRID_STEPS[GRID_STEPS.length - 1]
 }
 
+// A dense block type (stone, deepslate) can put hundreds of matches in a single
+// column, which would make an unreadable tooltip. Long stacks collapse in the
+// middle: the ends are what matter, and the lowest block is what a click copies.
+const STACK_HEAD = 4
+const STACK_TAIL = 4
+const STACK_MAX = STACK_HEAD + STACK_TAIL + 1
+
+// The rows to render for a column, `null` standing in for the elided middle.
+function stackRows(ys: number[]): (number | null)[] {
+  if (ys.length <= STACK_MAX) return ys
+  return [...ys.slice(0, STACK_HEAD), null, ...ys.slice(ys.length - STACK_TAIL)]
+}
+
+
+// Async clipboard first; the hidden-textarea route is the fallback for the
+// contexts where it is unavailable or blocked. Resolves to whether it stuck.
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    try {
+      const scratch = document.createElement('textarea')
+      scratch.value = text
+      scratch.setAttribute('readonly', '')
+      scratch.style.position = 'fixed'
+      scratch.style.top = '-1000px'
+      scratch.style.opacity = '0'
+      document.body.appendChild(scratch)
+      scratch.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(scratch)
+      return ok
+    } catch {
+      return false
+    }
+  }
+}
 
 type Props = {
   matches: BlockMatch[]
@@ -54,7 +96,15 @@ export function WorldMap({ matches }: Props) {
   const matchesRef = useRef<BlockMatch[]>(matches)
   const didFitRef = useRef(false)
   const rafRef = useRef<number | null>(null)
-  const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number; lastT: number } | null>(null)
+  const dragRef = useRef<{
+    pointerId: number
+    lastX: number
+    lastY: number
+    lastT: number
+    // Total screen distance travelled since pointerdown. A press that never
+    // really moves is a click on a pin, not a pan.
+    moved: number
+  } | null>(null)
   // Recent pan velocity (screen px / ms) for the release-glide, and the handle
   // to the inertia animation that decays it.
   const panVelRef = useRef({ vx: 0, vz: 0 })
@@ -64,9 +114,69 @@ export function WorldMap({ matches }: Props) {
   // The mirrored state only exists to render the HTML tooltip.
   const hoveredRef = useRef<Hovered | null>(null)
 
+  // Transient "copied" confirmation, cleared by a timer we own so it can be
+  // cancelled on unmount (and restarted when pins are clicked back to back).
+  const copyTimerRef = useRef<number | null>(null)
+
   const [hovered, setHovered] = useState<Hovered | null>(null)
   const [readout, setReadout] = useState<{ x: number; z: number } | null>(null)
   const [zoomPct, setZoomPct] = useState(50)
+  const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null)
+
+  // The column under a screen point: the nearest pin within the hit radius, plus
+  // every other match standing in the same X/Z, and that pin's screen position
+  // so the tooltip can anchor to the map instead of the cursor. Null if nothing
+  // is close enough. Linear scan is fine for the match counts a single dimension
+  // realistically produces, and it backs both hover and click-to-copy.
+  const columnAt = useCallback((px: number, py: number): Hovered | null => {
+    const view = viewRef.current
+    const { w, h } = sizeRef.current
+    const wx = view.cx + (px - w / 2) / view.ppb
+    const wz = view.cz + (py - h / 2) / view.ppb
+    const hitR = 9
+    let best: BlockMatch | null = null
+    let bestD = hitR * hitR
+    for (const m of matchesRef.current) {
+      const dx = (wx - m.x) * view.ppb
+      const dz = (wz - m.z) * view.ppb
+      const d = dx * dx + dz * dz
+      if (d <= bestD) {
+        bestD = d
+        best = m
+      }
+    }
+    if (!best) return null
+    const ys: number[] = []
+    for (const m of matchesRef.current) {
+      if (m.x === best.x && m.z === best.z) ys.push(m.y)
+    }
+    // Scan order is bottom-up, but a column can span sections, so don't assume.
+    ys.sort((a, b) => b - a)
+    return {
+      x: best.x,
+      z: best.z,
+      ys,
+      sx: w / 2 + (best.x - view.cx) * view.ppb,
+      sz: h / 2 + (best.z - view.cz) * view.ppb,
+    }
+  }, [])
+
+  // Copy the *lowest* block of the column as `x y z` — the form Minecraft's /tp
+  // takes, so the clipboard can go straight into the game. Lowest, because for a
+  // nether portal the bottom block is the one you want to stand in; the top is
+  // head height. The confirmation toast is set from the promise callback, never
+  // an effect body.
+  const copyColumn = useCallback((column: Hovered) => {
+    const text = `${column.x} ${column.ys[column.ys.length - 1]} ${column.z}`
+    void writeClipboard(text).then((ok) => {
+      if (copyTimerRef.current != null) clearTimeout(copyTimerRef.current)
+      setToast(ok ? { text: `Copied ${text}`, ok: true } : { text: "Couldn't copy", ok: false })
+      copyTimerRef.current = window.setTimeout(() => {
+        copyTimerRef.current = null
+        setToast(null)
+      }, 1800)
+    })
+  }, [])
 
   // Frame the view on the current matches (or the origin when there are none).
   // Mutates the view ref and reflects the zoom into state; only ever invoked
@@ -215,6 +325,30 @@ export function WorldMap({ matches }: Props) {
     })
   }, [draw])
 
+  // Commit a hover, skipping the state update when nothing about it moved. The
+  // anchor is derived from the pin's world position, so sliding the pointer
+  // around inside one pin's hit radius is a no-op and the tooltip stays put.
+  const applyHover = useCallback(
+    (next: Hovered | null) => {
+      const prev = hoveredRef.current
+      const same =
+        next == null
+          ? prev == null
+          : prev != null &&
+            next.x === prev.x &&
+            next.z === prev.z &&
+            next.ys.length === prev.ys.length &&
+            next.sx === prev.sx &&
+            next.sz === prev.sz
+      hoveredRef.current = next
+      if (!same) {
+        setHovered(next)
+        scheduleDraw()
+      }
+    },
+    [scheduleDraw],
+  )
+
   const stopInertia = useCallback(() => {
     if (inertiaRef.current != null) {
       cancelAnimationFrame(inertiaRef.current)
@@ -296,6 +430,10 @@ export function WorldMap({ matches }: Props) {
         cancelAnimationFrame(inertiaRef.current)
         inertiaRef.current = null
       }
+      if (copyTimerRef.current != null) {
+        clearTimeout(copyTimerRef.current)
+        copyTimerRef.current = null
+      }
     }
   }, [])
 
@@ -329,11 +467,15 @@ export function WorldMap({ matches }: Props) {
       view.cz = beforeZ - (py - h / 2) / ppb
       view.ppb = ppb
       setZoomPct(Math.round(ppb * 100))
+      // The tooltip anchors to the pin, not the cursor, so a zoom drags it out
+      // of place. Only refresh one that is already open — zooming shouldn't
+      // conjure a tooltip under a stationary pointer.
+      if (hoveredRef.current) applyHover(columnAt(px, py))
       scheduleDraw()
     }
     canvas.addEventListener('wheel', onWheel, { passive: false })
     return () => canvas.removeEventListener('wheel', onWheel)
-  }, [scheduleDraw, stopInertia])
+  }, [applyHover, columnAt, scheduleDraw, stopInertia])
 
   const onPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -343,6 +485,7 @@ export function WorldMap({ matches }: Props) {
       lastX: event.clientX,
       lastY: event.clientY,
       lastT: performance.now(),
+      moved: 0,
     }
   }
 
@@ -372,10 +515,8 @@ export function WorldMap({ matches }: Props) {
       drag.lastX = event.clientX
       drag.lastY = event.clientY
       drag.lastT = now
-      if (hoveredRef.current) {
-        hoveredRef.current = null
-        setHovered(null)
-      }
+      drag.moved += Math.hypot(dxs, dys)
+      applyHover(null)
       setReadout({ x: Math.round(view.cx + (px - w / 2) / view.ppb), z: Math.round(view.cz + (py - h / 2) / view.ppb) })
       scheduleDraw()
       return
@@ -385,40 +526,22 @@ export function WorldMap({ matches }: Props) {
     const wz = view.cz + (py - h / 2) / view.ppb
     setReadout({ x: Math.round(wx), z: Math.round(wz) })
 
-    // Nearest pin within a small screen radius gets a tooltip. Linear scan is
-    // fine for the match counts a single dimension realistically produces.
-    const ms = matchesRef.current
-    const hitR = 9
-    let best: BlockMatch | null = null
-    let bestD = hitR * hitR
-    for (const m of ms) {
-      const dx = (wx - m.x) * view.ppb
-      const dz = (wz - m.z) * view.ppb
-      const d = dx * dx + dz * dz
-      if (d <= bestD) {
-        bestD = d
-        best = m
-      }
-    }
-    const next: Hovered | null = best ? { x: best.x, y: best.y, z: best.z, sx: px, sz: py } : null
-    const prev = hoveredRef.current
-    const changed =
-      (next == null) !== (prev == null) ||
-      (next != null && prev != null && (next.x !== prev.x || next.y !== prev.y || next.z !== prev.z))
-    hoveredRef.current = next
-    if (changed) {
-      setHovered(next)
-      scheduleDraw()
-    } else if (next) {
-      // Same pin, but keep the tooltip glued to the cursor.
-      setHovered(next)
-    }
+    // Nearest pin within a small screen radius gets a tooltip.
+    applyHover(columnAt(px, py))
   }
 
   const endDrag = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current
     if (drag?.pointerId === event.pointerId) {
       event.currentTarget.releasePointerCapture(event.pointerId)
+      // A press that barely moved is a click: if it landed on a pin, copy it.
+      // Hit-tested fresh from the release point so touch works too — there is
+      // no hover state to lean on there.
+      if (drag.moved < 5 && event.type === 'pointerup') {
+        const rect = event.currentTarget.getBoundingClientRect()
+        const column = columnAt(event.clientX - rect.left, event.clientY - rect.top)
+        if (column) copyColumn(column)
+      }
       // If the pointer was paused at the moment of release, don't fling — the
       // stale velocity from earlier in the drag isn't what the user meant.
       if (performance.now() - drag.lastT > 60) {
@@ -432,18 +555,22 @@ export function WorldMap({ matches }: Props) {
 
   const onPointerLeave = () => {
     setReadout(null)
-    if (hoveredRef.current) {
-      hoveredRef.current = null
-      setHovered(null)
-      scheduleDraw()
-    }
+    applyHover(null)
   }
+
+  // Tooltip layout, derived from the hovered column. A tall stack hanging above
+  // a pin near the top edge would be cut off by the container's overflow-hidden,
+  // so in that case the tooltip flips to below the pin.
+  const hoveredRows = hovered ? stackRows(hovered.ys) : []
+  const tooltipBelow = hovered != null && hovered.sz < hoveredRows.length * 19 + 44
 
   return (
     <div ref={containerRef} className="relative aspect-square w-full select-none overflow-hidden rounded-2xl">
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 h-full w-full cursor-grab touch-none active:cursor-grabbing"
+        className={`absolute inset-0 h-full w-full touch-none active:cursor-grabbing ${
+          hovered ? 'cursor-pointer' : 'cursor-grab'
+        }`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -476,13 +603,44 @@ export function WorldMap({ matches }: Props) {
         </button>
       </div>
 
-      {/* Hovered-pin tooltip */}
+      {/* Hovered-pin tooltip. Anchored to the pin's own screen position rather
+          than the cursor, and listing every block in the column: X and Z repeat
+          down the stack so only Y changes, the way the blocks actually sit. */}
       {hovered ? (
         <div
-          className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-lg border border-violet-300/20 bg-slate-950/85 px-2.5 py-1.5 font-mono text-xs tabular-nums text-violet-50 shadow-lg shadow-black/40 backdrop-blur"
-          style={{ left: hovered.sx, top: hovered.sz - 10 }}
+          className={`pointer-events-none absolute z-10 -translate-x-1/2 rounded-lg border border-violet-300/20 bg-slate-950/85 px-2.5 py-1.5 font-mono text-xs leading-snug tabular-nums text-violet-50 shadow-lg shadow-black/40 backdrop-blur ${
+            tooltipBelow ? '' : '-translate-y-full'
+          }`}
+          style={{ left: hovered.sx, top: tooltipBelow ? hovered.sz + 12 : hovered.sz - 10 }}
         >
-          X {hovered.x} · Y {hovered.y} · Z {hovered.z}
+          {hoveredRows.map((y, i) =>
+            y == null ? (
+              <div key="elided" className="text-center text-[10px] text-violet-300/60">
+                ⋯ {hovered.ys.length - STACK_HEAD - STACK_TAIL} more ⋯
+              </div>
+            ) : (
+              <div key={`${y}-${i}`} className="whitespace-nowrap">
+                X: {hovered.x}, Y: {y}, Z: {hovered.z}
+              </div>
+            ),
+          )}
+          <span className="mt-1 block font-sans text-[10px] font-medium tracking-wide text-violet-300/70">
+            {hovered.ys.length > 1 ? 'click to copy the lowest' : 'click to copy'}
+          </span>
+        </div>
+      ) : null}
+
+      {/* Copy confirmation. Anchored to the map rather than the cursor so it
+          survives the pointer moving off the pin right after the click. */}
+      {toast ? (
+        <div
+          className={`pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-lg border px-3 py-1.5 font-mono text-xs tabular-nums shadow-lg shadow-black/40 backdrop-blur ${
+            toast.ok
+              ? 'border-violet-300/25 bg-slate-950/85 text-violet-50'
+              : 'border-rose-400/30 bg-rose-950/80 text-rose-100'
+          }`}
+        >
+          {toast.text}
         </div>
       ) : null}
     </div>

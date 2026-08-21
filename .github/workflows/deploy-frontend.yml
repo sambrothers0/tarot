@@ -1,18 +1,17 @@
-name: Deploy frontend to GitHub Pages
+name: Deploy to GitHub Pages
 
-# Builds the Vite frontend and publishes frontend/dist to GitHub Pages on every
-# push to master that touches the frontend. One-time setup is required:
+# Builds the Rust scanner to WebAssembly, then the Vite frontend, and publishes
+# frontend/dist to GitHub Pages on every push to master that touches either.
+# The whole app is static: the scan runs in the visitor's browser, so there is
+# no backend to deploy and no API URL to configure. One-time setup is required:
 #   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
-# To point the app at a deployed backend, set an Actions *variable* named
-# VITE_API_URL (Settings -> Secrets and variables -> Actions -> Variables), e.g.
-#   https://your-backend-host/parse-blocks
-# When unset, the build falls back to http://localhost:8000/parse-blocks.
 
 on:
   push:
     branches: [master]
     paths:
       - 'frontend/**'
+      - 'scanner/**'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch: {}
 
@@ -27,14 +26,46 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+env:
+  # Pinned so a wasm-pack release can't change the build under us. Bump
+  # deliberately.
+  WASM_PACK_VERSION: v0.15.0
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+
+      # ubuntu-latest ships rustup with a stable toolchain, so only the wasm
+      # target needs adding.
+      - name: Add the wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      # Registry + build artifacts. Keyed on Cargo.lock so a dependency bump
+      # invalidates it, with a looser prefix so an unrelated bump still gets a
+      # warm-ish start.
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            scanner/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('scanner/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      # Prebuilt binary rather than `cargo install wasm-pack`, which would spend
+      # several minutes compiling a build tool on every cold cache.
+      - name: Install wasm-pack
+        run: |
+          curl -sSfL "https://github.com/wasm-bindgen/wasm-pack/releases/download/${WASM_PACK_VERSION}/wasm-pack-${WASM_PACK_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            | tar -xz --strip-components=1 -C /usr/local/bin --wildcards '*/wasm-pack'
+          wasm-pack --version
+
+      - name: Test the scanner
+        working-directory: scanner
+        run: cargo test --locked
 
       - uses: actions/setup-node@v4
         with:
@@ -42,14 +73,18 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
 
-      - run: npm run build
+      # `npm run build` runs `build:wasm` (wasm-pack) before tsc + vite, because
+      # the TypeScript build needs the generated bindings to exist.
+      - name: Build
+        working-directory: frontend
+        run: npm run build
         env:
-          # Project site lives under /portal-mapper/ — must match the repo name.
-          VITE_BASE: /portal-mapper/
-          # Backend API URL baked into the bundle at build time (may be empty).
-          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          # Project site lives under /tarot/ — must match the repo name.
+          VITE_BASE: /tarot/
 
       - uses: actions/configure-pages@v5
 

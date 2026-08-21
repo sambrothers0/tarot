@@ -9,6 +9,6 @@ testing/
 # Claude Code memory (personal/local)
 .claude/
 
-# Local OCI provisioning script — contains personal tenancy/subnet OCIDs and
-# local machine paths. Kept on disk to run locally, never committed.
-deploy/grab-a1.ps1
+# Rust / wasm build output. Built in CI, and locally via `npm run build:wasm`.
+scanner/target/
+frontend/src/wasm/
