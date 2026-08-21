@@ -184,8 +184,10 @@ function App() {
         {/* Header */}
         <div className="w-full">
           {/* Tighter size/tracking on phones so the wide letter-spacing doesn't
-              overflow the viewport; full drama from sm up. */}
-          <p className="mb-10 inline-block text-4xl uppercase tracking-[0.4em] text-violet-200/70 sm:mb-14 sm:text-6xl sm:tracking-[1em]">
+              overflow the viewport; full drama from sm up. The negative right
+              margin cancels the trailing letter-space after the final T, which
+              would otherwise throw the centring off by half the tracking. */}
+          <p className="mb-10 -mr-[0.4em] inline-block text-4xl uppercase tracking-[0.4em] text-violet-200/70 sm:mb-14 sm:-mr-[1em] sm:text-6xl sm:tracking-[1em]">
             TAROT
           </p>
           <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-5xl lg:text-4xl">
@@ -390,12 +392,13 @@ function App() {
           </a>
         </p>
 
-        <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-400 sm:text-base">
+        <p className="mx-auto mt-4 max-w-2xl text-center text-sm text-slate-400 sm:text-base">
+          {/* The docs are a second static entry point, not a route, so this is
+              a plain same-tab navigation. BASE_URL keeps it right in dev (`/`)
+              and under the Pages subpath (`/tarot/`). */}
           <a
-            href="https://sambrothers0.github.io/tarot/docs"
-            className="text-violet-200 underline underline-offset-4 transition hover:text-violet-100"
-            target="_blank"
-            rel="noreferrer"
+            href={`${import.meta.env.BASE_URL}docs/`}
+            className="underline underline-offset-4 transition hover:text-slate-200"
           >
             How it works
           </a>
@@ -423,7 +426,7 @@ function App() {
           </a>
         </div>
 
-        <p className="mx-auto mt-8 max-w-2xl text-center text-xs text-slate-600">
+        <p className="mx-auto mt-4 max-w-2xl text-center text-xs text-slate-600">
           Tarot is pronounced "TARE-oh"
         </p>
       </footer>

@@ -1,51 +1,40 @@
+## What is Tarot
+
+Tarot is a tool for plotting locations of blocks within a Minecraft world. The project fills a gap in the existing tools for visualizing and analyzing MCA files. It's a simple browser site that reads a zipped save file and instantly maps the locations of a given block throughout the world onto a 2D grid. Unlike other solutions, it's free, requires no install, and works lightning fast.
+
+**Use Tarot to locate forgotten builds, nether portals, and existing structures in the world by searching for a specific block type.**
+
 ## Why this exists
 
-I had a Minecraft world I'd played for years and a nether portal I could not
-find. It was out there — somewhere past a few thousand blocks of terrain I'd
-stopped recognising — and no amount of flying around was going to turn it up.
+When you play one specific Minecraft world for 5 years straight, you wind up building a lot of nether portals. After spending a couple hours searching for the location of a previously built, but since-forgotten portal, most players will learn to simply write down the coordinates of each one. This was the system I used for most of my survival world's lifetime. However, the solution isn't good enough. Writing a manual document that you have to constantly update, verify, and backup is extremely error prone and brittle. I needed something better.
 
-The information was already sitting on my disk. A save file records every block
-in every chunk you have ever loaded. There was no reason to search the world by
-walking through it when the answer was in a folder.
-
-So Tarot reads the save directly and plots the answer on a map. Point it at a
-zipped world, name a block, pick a dimension, and it gives you every coordinate
-where that block occurs.
-
-It is useful for more than lost portals. Anything you built out of a
-distinctive block is findable — beacons, end portal frames, spawners, a
-particular kind of ore — and the shape of the results doubles as a map of where
-you have actually explored.
+Tarot exists to solve this problem by mapping any portal block - or other block - you specify, and plotting those locations on the fly in an interactive grid, inspired by the [Chunkbase](www.chunkbase.com) UI.
 
 ## How it works
 
 **Nothing is uploaded.** The scan runs on your own machine, inside the browser
-tab. There is no server in the request path, no account, and no copy of your
-world anywhere but where it already was.
+tab. There is no server in the request, no account, and no additional copy of your
+world saved anywhere.
 
-That was a deliberate rewrite. The first version of Tarot did have a backend,
-and uploading a gigabyte-plus save to it was by a wide margin the slowest part
-of using the app — slower than the actual search. Removing the upload removed
-the reason for the server to exist at all.
+This means that your own machine is performing the computation with no waiting around for a large file upload. It also means the website's performance is dependent on the specs of your computer, likely a benefit to most technical players.
 
 Four things happen when you press scan:
 
-**1. The zip is opened, not loaded.** A large save is well over a gigabyte, and
-reading all of it into memory to find the parts that matter would end the tab
-right there. Instead Tarot reads the archive's index from its tail and then
+**1. The zip is opened, not loaded.** A large save can be multiple GB. If you read everything
+into memory to find the parts that matter, you run the risk of killing the tab
+on the spot. Instead Tarot reads the archive's index from its tail and then
 fetches individual entries by their exact byte offset, the way you'd read a
 single record out of a database rather than the whole table.
 
 **2. Only the relevant files are pulled out.** A save contains entity data,
 points of interest, player data, statistics, and three separate dimensions. A
-block search needs none of that — just the `region/*.mca` files for the one
+block search needs none of that - just the `region/*.mca` files for the one
 dimension you chose. Everything else is skipped without ever being read.
 
 **3. The regions are scanned in parallel.** Each region file is independent, so
 they're handed out to a pool of background workers, each running a scanner
 compiled to WebAssembly. Only a few regions are kept in memory at a time — the
-reader deliberately stalls when the pool is busy, which is what keeps a 1.2 GB
-world from becoming a crashed tab.
+reader deliberately stalls when the pool is busy. This keeps large scans from simply crashing the tab.
 
 The scanner itself is careful about what it decodes. Each chunk section stores a
 palette of the block types it contains, followed by a tightly packed array
@@ -57,24 +46,26 @@ short list of names.
 
 **4. The results are drawn.** Coordinates come back as a flat run of numbers and
 land on a canvas on Minecraft's X/Z plane, with a chunk-aligned grid. Drag to
-pan, scroll to zoom, hover to read a coordinate, click a marker to copy it
-straight to the clipboard.
+pan, scroll to zoom, hover to read a coordinate pin, and click to copy
+it to the clipboard.
 
 ## Notes and limits
 
-**The count is always true; the map is capped.** If you search for something
-common like stone, the total you're shown is the real total, but only the first
-100,000 coordinates are plotted. No map can meaningfully draw hundreds of
-millions of points, and no browser can hold them.
+**Vertically stacked blocks.** If two blocks are stacked directly on top of one another, 
+they won't appear visually distinct on the map. You'll have to hover over the pin to see
+vertical granularity.
 
-**Speed depends on your machine.** The work that used to happen on a server now
-happens on your cores. On a desktop this is a large net win, because the upload
-is gone. On an old phone it is slower — that's the accepted trade for never
-having to hand your save to anyone.
+**User dependent performance.** The computation of parsing each region file
+happens on your cores. On a desktop this is an advantage because there's no slow file upload. 
+On a very lightweight laptop or mobile device, the scan time could be slower.
 
 **A recent browser is required.** Tarot decompresses zip entries with a built-in
-browser API that arrived in Chrome 103, Safari 16.4 and Firefox 113. On anything
-older the app will say so up front rather than failing partway through a scan.
+browser API that arrived in Chrome 103, Safari 16.4 and Firefox 113. It is not 
+compatible with older browser versions.
 
 **Java Edition saves only.** Bedrock stores its world in an entirely different
 format and is not supported.
+
+## On technical Minecraft
+
+Like many victims of technical Minecraft addiction, I experienced a shift in how I spent my time as I transitioned from the early-late game to the late-late game. Once you've built a fully automatic farm and sorting system for every relevant resource in the game, you start to look for new ways to play the game. I noticed that I spent less time doing manual activities like mining, collecting items, and fighting mobs, and more time researching, testing, and experimenting using tools and quality of life modpacks. This project follows in a similar vein, and it's my contribution to the technical community that has given me so many hours of satisfaction.
