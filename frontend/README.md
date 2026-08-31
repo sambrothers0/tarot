@@ -1,8 +1,9 @@
 # Tarot — Frontend
 
-React 19 + TypeScript + Vite UI. Opens a Minecraft save zip, drives a pool of
-WebAssembly workers that scan it, and plots the results on an interactive map.
-Everything happens on the visitor's machine — there is no upload and no backend.
+React 19 + TypeScript + Vite UI. Opens a Minecraft save — a zip, or the world
+folder itself — drives a pool of WebAssembly workers that scan it, and plots the
+results on an interactive map. Everything happens on the visitor's machine —
+there is no upload and no backend.
 
 ## Requirements
 
@@ -65,15 +66,20 @@ hashed asset, so no extra configuration is needed. The module is ~45 KB gzipped.
 
 ## How it works
 
-1. **Pick a save + dimension.** The selected `.zip` is passed to the coordinator
-   worker by reference, so it is never read on the main thread.
-2. **Open** (`src/workers/worldScan.worker.ts` + `src/workers/zip.ts`). The
-   worker reads the zip's central directory — the index at the tail of the
-   archive — and picks out just the chosen dimension's `region/*.mca` files
-   (plus any `.mcc` oversized-chunk sidecars). Everything else in a save is
-   irrelevant to a block search and is never read. The archive itself stays on
-   disk: members are fetched by absolute offset with `Blob.slice()`, so opening
-   a 1.2 GB save costs kilobytes, not 1.2 GB.
+1. **Pick a save + dimension.** A `.zip` or a world folder, passed to the
+   coordinator worker by reference, so it is never read on the main thread. A
+   folder arrives as its whole file list — handles only, nothing read — and the
+   path of each file is captured from `webkitRelativePath` on the main thread,
+   because that property does not survive the clone into a worker.
+2. **Open** (`src/workers/worldScan.worker.ts` + `src/workers/source.ts`).
+   `source.ts` reduces both forms to a list of entries that read their own
+   bytes; for a zip that means parsing the central directory — the index at the
+   tail of the archive — and for a folder it is the file list as picked. Either
+   way the worker takes just the chosen dimension's `region/*.mca` files (plus
+   any `.mcc` oversized-chunk sidecars); everything else in a save is irrelevant
+   to a block search and is never read. The bytes stay on disk until wanted: zip
+   members are fetched by absolute offset with `Blob.slice()`, so opening a
+   1.2 GB save costs kilobytes, not 1.2 GB.
 3. **Scan** (`src/workers/regionScan.worker.ts` + [`../scanner`](../scanner)).
    Region files go out to a pool of workers, each with its own WebAssembly
    instance. Region files are read **a few ahead of the workers, never all at

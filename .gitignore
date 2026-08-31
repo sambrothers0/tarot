@@ -3,6 +3,8 @@
 __pycache__/
 *.pyc
 
+/dist
+
 # Test data (large zips, not for version control)
 testing/
 

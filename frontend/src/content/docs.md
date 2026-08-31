@@ -1,6 +1,6 @@
 ## What is Tarot
 
-Tarot is a tool for plotting locations of blocks within a Minecraft world. The project fills a gap in the existing tools for visualizing and analyzing MCA files. It's a simple browser site that reads a zipped save file and instantly maps the locations of a given block throughout the world onto a 2D grid. Unlike other solutions, it's free, requires no install, and works lightning fast.
+Tarot is a tool for plotting locations of blocks within a Minecraft world. The project fills a gap in the existing tools for visualizing and analyzing MCA files. It's a simple browser site that reads your zipped or raw save folder and instantly maps the locations of a given block throughout the world onto a 2D grid. Unlike other solutions, it's free, requires no install, and works lightning fast.
 
 **Use Tarot to locate forgotten builds, nether portals, and existing structures in the world by searching for a specific block type.**
 
@@ -8,7 +8,7 @@ Tarot is a tool for plotting locations of blocks within a Minecraft world. The p
 
 When you play one specific Minecraft world for 5 years straight, you wind up building a lot of nether portals. After spending a couple hours searching for the location of a previously built, but since-forgotten portal, most players will learn to simply write down the coordinates of each one. This was the system I used for most of my survival world's lifetime. However, the solution isn't good enough. Writing a manual document that you have to constantly update, verify, and backup is extremely error prone and brittle. I needed something better.
 
-Tarot exists to solve this problem by mapping any portal block - or other block - you specify, and plotting those locations on the fly in an interactive grid, inspired by the [Chunkbase](www.chunkbase.com) UI.
+Tarot exists to solve this problem by scanning a save for portal blocks (or any other block you specify) and plotting those locations on the fly in an interactive grid, inspired by the [Chunkbase](www.chunkbase.com) UI.
 
 ## How it works
 
@@ -20,11 +20,12 @@ This means that your own machine is performing the computation with no waiting a
 
 Four things happen when you press scan:
 
-**1. The zip is opened, not loaded.** A large save can be multiple GB. If you read everything
+**1. The save is opened, not loaded.** A large save can be multiple GB. If you read everything
 into memory to find the parts that matter, you run the risk of killing the tab
-on the spot. Instead Tarot reads the archive's index from its tail and then
-fetches individual entries by their exact byte offset, the way you'd read a
-single record out of a database rather than the whole table.
+on the spot. Tarot reads the archive's index from its tail and then fetches individual entries by
+their exact byte offset, the way you'd read a single record out of a database
+rather than the whole table. For unzipped save folders, the browser hands over the list of files, 
+and Tarot opens them one at a time.
 
 **2. Only the relevant files are pulled out.** A save contains entity data,
 points of interest, player data, statistics, and three separate dimensions. A
@@ -59,9 +60,14 @@ vertical granularity.
 happens on your cores. On a desktop this is an advantage because there's no slow file upload. 
 On a very lightweight laptop or mobile device, the scan time could be slower.
 
-**A recent browser is required.** Tarot decompresses zip entries with a built-in
-browser API that arrived in Chrome 103, Safari 16.4 and Firefox 113. It is not 
-compatible with older browser versions.
+**A recent browser is required for zipped saves.** Tarot decompresses zip entries
+with a built-in browser API that arrived in Chrome 103, Safari 16.4 and Firefox
+113. It is not compatible with older browser versions. Scanning a world folder
+skips that step entirely and works on older browsers.
+
+**Close the world first.** Minecraft rewrites region files while you play, so
+scanning a folder belonging to an open world can fail partway through. Quit to
+the title screen and scan again. Scanning a zip is never affected.
 
 **Java Edition saves only.** Bedrock stores its world in an entirely different
 format and is not supported.

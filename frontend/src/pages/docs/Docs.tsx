@@ -1,6 +1,7 @@
+import { AmbientBackground } from '../../components/layout/AmbientBackground'
 import Markdown from 'react-markdown'
 import type { Components } from 'react-markdown'
-import docsMarkdown from './content/docs.md?raw'
+import docsMarkdown from '../../content/docs.md?raw'
 
 // The docs are one long read, so the markdown maps onto a small fixed set of
 // elements rather than a stylesheet: headings, paragraphs, lists, inline code,
@@ -50,12 +51,7 @@ const components: Components = {
 export function Docs() {
   return (
     <main className="relative min-h-screen overflow-x-hidden bg-[#06040d] text-white">
-      <div className="bg-blobs" aria-hidden="true">
-        <div className="blob blob-1" />
-        <div className="blob blob-2" />
-        <div className="blob blob-3" />
-        <div className="blob blob-4" />
-      </div>
+      <AmbientBackground />
 
       <div className="relative z-10 mx-auto w-full max-w-2xl px-6 pt-14 pb-24 sm:pt-20">
         {/* The app links here in the same tab, so the way back has to be on the

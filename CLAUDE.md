@@ -38,12 +38,15 @@ TypeScript build reads the generated `.d.ts`.
 
 Always run `tsc`/`lint` after touching frontend code — the lint config is strict
 (see "React Compiler" below). There is no automated frontend test suite;
-verification is running the app against the `testing/` zips.
+verification is running the app against the `testing/` zips — and, for the
+folder path, against one of them extracted to a directory. The two must report
+identical counts for the same block and dimension.
 
 ## Architecture map
 
-Pick a zip → a worker opens it and pulls out one dimension's region files → a
-pool of wasm workers scans them → coordinates go on a canvas. No network.
+Pick a save — a zip, or the world folder itself → a worker opens it and pulls
+out one dimension's region files → a pool of wasm workers scans them →
+coordinates go on a canvas. No network.
 
 ### Scanner (`scanner/`)
 Port of `backend/`, compiled to `wasm32-unknown-unknown` via `wasm-pack`.
@@ -53,38 +56,85 @@ Port of `backend/`, compiled to `wasm32-unknown-unknown` via `wasm-pack`.
 including why nothing in it may panic, is in `scanner/README.md`.
 
 ### Frontend (`frontend/src/`)
-- `App.tsx` — top-level flow and the three-phase state machine
-  (`idle → opening → scanning`), driven from `handleSubmit`. Converts the flat
-  `Int32Array` of coordinates into `[{x,y,z}]` at the worker boundary, so
+Three static entry points (`main.tsx`, `pages/docs/docs-main.tsx`,
+`pages/notfound/not-found-main.tsx`) mount one page each from `pages/`. A page
+composes components from `components/` and calls into `lib/` for anything that
+isn't markup; nothing under `components/` reaches back up into a page.
+
+- `pages/index/Index.tsx` — the app. Owns the three-phase state machine
+  (`idle → opening → scanning`), driven from `handleSubmit`, plus the scan's
+  inputs and its result. Everything it draws is a component; keep it that way,
+  because this file is the only place the whole flow is legible at once.
+- `lib/scanOptions.ts` — the vocabulary shared by the page and the form:
+  `DIMENSIONS`, `SOURCES`, `MAX_MATCHES`, `Phase`, `ScanResult`.
+- `lib/scanWorld.ts` — spawns the coordinator worker, reports `opened`/
+  `progress` back through callbacks, and resolves with the result. Converts the
+  flat `Int32Array` of coordinates into `[{x,y,z}]` at the worker boundary, so
   nothing downstream knows about the packed form.
+- `components/scan/SavePicker.tsx` — the zip/folder toggle and the file input.
+  The input is remounted per mode (`key`) because `webkitdirectory` does not
+  toggle reliably on a live input; `readSelection()` here is also where a
+  folder's paths are captured (invariant 7).
+- `components/scan/` — `ScanForm.tsx` (save, block type, dimension, submit),
+  `ScanProgress.tsx` (both bars), `ScanSummary.tsx` (the result line and bulk
+  copy), `MapPanel.tsx` (the square frame the map and its loader live in). All
+  controlled by the page; the only state any of them keeps is `ScanSummary`'s
+  transient "Copied".
+- `components/layout/` — `AmbientBackground` (the `bg-blobs` markup, shared by
+  all three pages), `Divider`, `SiteFooter`.
+- `workers/source.ts` — where a save's bytes come from, and the only place the
+  two input forms differ. Flattens both to `SaveEntry[]` (`name` + `readRaw()`),
+  so nothing downstream knows which it got. A loose `.mca` is modelled as a
+  *stored* member (`method: 0`), which `decompress()` already passes through
+  untouched — that is why the pool needs no special case for folders.
 - `workers/zip.ts` — the zip reader. Range-reads the archive off disk instead
   of loading it: the central directory is parsed from the tail, and each member
   is fetched by absolute offset through `Blob.slice()`. Replaced JSZip, which
   had no random-access path. Supports stored/deflated members and Zip64.
-- `workers/worldScan.worker.ts` — coordinator. Reads the zip's index, enumerates
-  one dimension's `.mca` members, reads them with **bounded read-ahead**, and
-  feeds a pool of scan workers *still compressed*. Owns `regionDimension()`.
+- `workers/worldScan.worker.ts` — coordinator. Lists the save through
+  `source.ts`, enumerates one dimension's `.mca` entries, reads them with
+  **bounded read-ahead**, and feeds a pool of scan workers the bytes *as
+  stored*. Owns `parseRegionPath()`.
 - `workers/regionScan.worker.ts` — pool member. One wasm instance per worker,
   inflates its region (`DecompressionStream('deflate-raw')`) and scans it.
   Deliberately independent instances: no `SharedArrayBuffer` and no
   `wasm-bindgen-rayon`, because GitHub Pages cannot set the COOP/COEP headers
   cross-origin isolation requires.
-- `WorldMap.tsx` — single-canvas map (X/Z plane). Pan/zoom/auto-fit/hover, all
-  drawn imperatively from refs. Clicking a pin (a press that travelled < 5 px)
-  copies its `x y z` to the clipboard and shows a short confirmation toast.
-- `Docs.tsx` + `docs-main.tsx` — the `/docs` page: logo, wordmark, and the prose
-  from `content/docs.md`, imported `?raw` and rendered by `react-markdown`
-  through an explicit element map (no typography plugin). It is a **second
-  static entry point**, not a route: `frontend/docs/index.html` is listed in
-  `build.rollupOptions.input`, so it builds to `dist/docs/index.html` and Pages
-  serves it on a cold load. Nothing links to it from the app chrome yet.
-  Note `src/Docs.tsx` and `src/docs-main.tsx` must not collide case-insensitively
-  on Windows — that is why the entry isn't `docs.tsx`.
-- `PortalLoader.tsx`, `index.css` (Tailwind v4 + ambient background animation).
-- `assets/*.svg` — icons live here as standalone files, imported as components
-  via `vite-plugin-svgr` (`import Icon from './assets/x.svg?react'`). They keep
-  `currentColor`/`stroke="currentColor"` so colour and sizing stay with the
-  Tailwind classes at the call site. Don't paste icon markup back inline.
+- `components/worldmap/` — the single-canvas map (X/Z plane), split so the
+  canvas maths stands apart from the React wiring:
+  - `WorldMap.tsx` — the component. Refs, hover/zoom state, the pointer and
+    wheel handlers, and the `requestAnimationFrame` scheduling. Clicking a pin
+    (a press that travelled < `CLICK_SLOP` px) copies its `x y z`.
+  - `view.ts` — `View`, the `projection()` world↔screen pair that every hit
+    test and every draw goes through, `fitView()`, `niceStep()`, the zoom clamp.
+  - `render.ts` — `drawMap()`, the only code that touches the canvas. It reads
+    its whole world from the `Scene` argument and never touches React state.
+  - `columns.ts` — `columnAt()`, the hit test that resolves a screen point to
+    the column of matches sharing one X/Z, plus `sameColumn()`/`columnCoords()`.
+  - `useInertia.ts` (release glide), `useCopyToast.ts` (click-to-copy and its
+    confirmation), `clipboard.ts` (async clipboard, textarea fallback).
+  - `MapTooltip.tsx`, `MapHud.tsx` — the HTML chrome floating over the canvas.
+- `pages/docs/Docs.tsx` + `docs-main.tsx` — the `/docs` page: logo, wordmark,
+  and the prose from `content/docs.md`, imported `?raw` and rendered by
+  `react-markdown` through an explicit element map (no typography plugin). It is
+  a **second static entry point**, not a route: `frontend/docs/index.html` is
+  listed in `build.rollupOptions.input`, so it builds to `dist/docs/index.html`
+  and Pages serves it on a cold load.
+  Note `Docs.tsx` and `docs-main.tsx` must not collide case-insensitively on
+  Windows — that is why the entry isn't `docs.tsx`.
+- `pages/notfound/NotFound.tsx` + `not-found-main.tsx` — the third static entry
+  point, mounted from `frontend/404.html`. It builds to `dist/404.html` at the
+  site root, which is where Pages looks for the page to serve on an unknown
+  path. Static like the other two: there is no client-side router to catch the
+  miss. Vite's dev and preview servers would fall back to `index.html` for a
+  miss, so `notFoundFallback()` in `vite.config.ts` intercepts any path no file
+  backs and serves this page with a 404 status — local behaviour matches Pages.
+- `assets/PortalLoader.tsx`, `index.css` (Tailwind v4 + ambient background
+  animation).
+- `assets/icons/*.svg` — icons live here as standalone files, imported as
+  components via `vite-plugin-svgr` (`import Icon from './assets/icons/x.svg?react'`).
+  They keep `currentColor`/`stroke="currentColor"` so colour and sizing stay with
+  the Tailwind classes at the call site. Don't paste icon markup back inline.
 
 ## Cross-cutting invariants (don't break these)
 
@@ -93,21 +143,27 @@ including why nothing in it may panic, is in `scanner/README.md`.
    most `workers + 2` region buffers resident — counting every buffer alive
    anywhere: being read, queued, inside a worker, or awaiting its turn to be
    aggregated — and the reader parks when it hits that bound. Those are the
-   *compressed* members; each worker inflates its own, so the true peak is that
-   bound plus one inflated region per worker. Blowing this bound
-   is the one change that turns the design into a tab crash. Treat it as
-   load-bearing.
-2. **`regionDimension()` is the source of truth for dimension-from-path.** A
+   members *as stored*: out of a zip that is the compressed form and each worker
+   inflates its own, so the true peak is that bound plus one inflated region per
+   worker; out of a folder the stored form is already inflated and nothing is
+   duplicated, which makes the folder case the cheaper of the two despite the
+   bigger buffers. Blowing this bound is the one change that turns the design
+   into a tab crash. Treat it as load-bearing.
+2. **`parseRegionPath()` is the source of truth for dimension-from-path.** A
    member is a region file only if its path is `…/region/<name>.mca|.mcc`, and
    the dimension comes from the parent dir (`DIM-1`→nether, `DIM1`→end, else
-   overworld). `backend/main.py::_region_dimension` is a copy, but it only ever
-   runs in the oracle, so the frontend does not have to mirror anything.
+   overworld). It also returns the `world` root above that, which is how a
+   selection holding two worlds is rejected instead of silently plotting both on
+   one map — easy to hit with a folder, since `saves/` is one level up.
+   `backend/main.py::_region_dimension` is a copy of the dimension half, but it
+   only ever runs in the oracle, so the frontend does not have to mirror it.
 3. **Coordinates cross the wasm boundary as a flat `Int32Array`** of `x, y, z`
    triples, never as objects. A dense block yields hundreds of millions of
    matches; per-match object marshalling costs more than the scan itself. They
-   become `[{x,y,z}]` exactly once, in `App.tsx`.
+   become `[{x,y,z}]` exactly once, in `lib/scanWorld.ts`.
 4. **React Compiler is on.** `babel-plugin-react-compiler` + strict
-   `eslint-plugin-react-hooks` v7. Practical rules, mainly in `WorldMap.tsx`:
+   `eslint-plugin-react-hooks` v7. Practical rules, mainly in
+   `components/worldmap/`:
    - **No `setState` in an effect body.** Put state updates in event /
      `requestAnimationFrame` / `ResizeObserver` callbacks instead.
    - Read live view/hover state from refs inside the canvas `draw`.
@@ -120,13 +176,36 @@ including why nothing in it may panic, is in `scanner/README.md`.
 6. **The Rust scanner must stay byte-identical to the Python oracle.** Any
    change to `scanner/src/nbt.rs` or `src/region.rs` needs the cross-check in
    `backend/README.md` re-run — same count, same match list, same order.
+7. **A folder's paths are captured on the main thread.**
+   `File.webkitRelativePath` is the only record of where in a save a file sits,
+   and it does **not** survive the structured clone into a worker — read it
+   there and every file reports `''`, so no region file is ever found.
+   `SavePicker` pairs each `File` with its path into a `FolderFile` before
+   posting.
 
 ## Known risks / TODO
 
-- **`DecompressionStream('deflate-raw')` is a hard requirement.** It is what
-  inflates zip members, and it rules out Chrome < 103, Safari < 16.4 and
-  Firefox < 113. `assertDecompressionSupported()` fails the scan up front with
-  an explanation rather than letting the constructor throw mid-run.
+- **`DecompressionStream('deflate-raw')` is a hard requirement *for zips*.** It
+  is what inflates zip members, and it rules out Chrome < 103, Safari < 16.4 and
+  Firefox < 113. `assertDecompressionSupported()` runs inside `openZip()` and
+  fails the scan up front with an explanation rather than letting the
+  constructor throw mid-run. A folder scan never inflates anything at this
+  layer, so it works on older browsers — don't hoist that assert back out.
+- **Directory input is `webkitdirectory`, not the File System Access API.**
+  `showDirectoryPicker()` is Chromium-only and absent from `lib.dom.d.ts`;
+  `webkitdirectory` covers Chrome, Edge, Firefox 50+ and Safari 11.1+. It is
+  declared as a JSX attribute by a module augmentation in `vite-env.d.ts` —
+  which needs that file's `export {}` to stay put, or the block stops being an
+  augmentation and shadows React's types wholesale.
+- **Chrome's directory picker says "upload N files".** Nothing is uploaded and
+  nothing is even read — the hint text under the input pre-empts the wording.
+  Drag-and-drop via `webkitGetAsEntry()` would avoid the prompt entirely; note
+  that dropped files have an empty `webkitRelativePath` and the path must be
+  rebuilt from the entry's `fullPath`.
+- **A folder can change under the scan.** A `File` is a snapshot of a path, size
+  and mtime; if Minecraft rewrites a region mid-scan the read fails, and
+  `openFolder` turns that into "close the world in Minecraft". A zip cannot do
+  this. Telling people to close the world first is the only real fix.
 - **The reader trusts the central directory, never the local headers.** Local
   headers give the data offset and nothing else — a zipper that streamed its
   output leaves the sizes there zero and writes them after the payload.

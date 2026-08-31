@@ -1,4 +1,4 @@
-import spiralGif from './assets/spiral-opt.gif'
+  import spiralGif from './portal-loader.gif'
 
 export function PortalLoader() {
   return (

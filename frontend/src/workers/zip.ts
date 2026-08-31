@@ -301,11 +301,6 @@ export function decompress(member: RawMember): Promise<Uint8Array<ArrayBuffer>> 
   return inflateRaw(member.data, member.uncompressedSize)
 }
 
-/** Read one member and decompress it. For small members read up front. */
-export async function readMember(blob: Blob, entry: ZipEntry): Promise<Uint8Array<ArrayBuffer>> {
-  return decompress(await readRaw(blob, entry))
-}
-
 /**
  * Fail early, and with a real explanation, on a browser without raw-deflate
  * decompression (pre-103 Chrome, pre-16.4 Safari, pre-113 Firefox) rather than
