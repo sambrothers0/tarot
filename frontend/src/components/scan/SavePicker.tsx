@@ -55,7 +55,7 @@ export function SavePicker({ sourceKind, onSourceKind, onSave, disabled }: Props
       <span className="text-xs text-slate-500">
         {sourceKind === 'zip'
           ? 'Zipped save folder · scanned locally on your device'
-          : 'The world folder itself · scanned locallly on your device'}
+          : 'The save folder itself · scanned locally on your device'}
       </span>
     </div>
   )

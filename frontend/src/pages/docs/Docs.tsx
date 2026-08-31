@@ -67,7 +67,7 @@ export function Docs() {
           {/* Lives in public/ rather than the bundle so it can double as the
               favicon; BASE_URL keeps it correct under the /tarot/ subpath. */}
           <img
-            src={`${import.meta.env.BASE_URL}favicon.png`}
+            src={`${import.meta.env.BASE_URL}favicon.svg`}
             alt=""
             className="h-16 w-16 [image-rendering:pixelated]"
           />
