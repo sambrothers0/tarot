@@ -6,9 +6,7 @@ a block type (defaults to `minecraft:nether_portal`), and the matching
 coordinates are plotted on an interactive map.
 
 **The scan runs entirely in your browser.** Your save is never uploaded, there
-is no server, and the whole app is static files. That was a deliberate rewrite:
-the upload used to be the slowest part of the app by a wide margin, and getting
-rid of it meant getting rid of the reason for a backend at all.
+is no server, and the whole app is static files.
 
 Live at <https://sambrothers0.github.io/tarot/>.
 
@@ -18,8 +16,7 @@ Live at <https://sambrothers0.github.io/tarot/>.
 |---|---|
 | `scanner/` | Rust crate compiled to WebAssembly. Reads region files, walks chunk NBT, finds the blocks. This is the engine. |
 | `frontend/` | React 19 + TypeScript + Vite UI. Opens the save, drives a pool of wasm workers, draws the map. |
-| `backend/` | The original Python scanner. **Not deployed** — kept as the oracle that proves the Rust port is correct. |
-| `testing/` | Sample save zips for manual verification (`test1.zip` ~1.4 MB, `test2.zip` ~1.18 GB). |
+| `testing/` | (Untracked) Sample save data for manual verification. |
 
 Agent-facing architecture notes and invariants live in
 [`CLAUDE.md`](CLAUDE.md).
@@ -43,7 +40,7 @@ npm run dev            # http://localhost:5173
 least once before `npm run dev`, `npm run build`, or `tsc` — the TypeScript
 build reads the bindings it generates.
 
-## How it fits together
+## All together 
 
 1. **Pick a save + dimension.** Either a `.zip` or the world folder itself; it
    is handed to a coordinator web worker by reference, and nothing is read on
@@ -85,9 +82,7 @@ workers — a folder scan skips this layer, since the files are already content)
 and inside each `.mca` every chunk is *separately* zlib-compressed (undone in
 Rust).
 
-The port replaced Python because Python had no headroom left — profiling showed
-84% of a scan going to CPython interpreter dispatch, and a hand-optimised hot
-path bought 1.07x. Details, build instructions, and the correctness invariants
+Details, build instructions, and the correctness invariants
 (chiefly: nothing may panic, because a wasm panic takes the worker down) are in
 [`scanner/README.md`](scanner/README.md).
 
@@ -118,22 +113,6 @@ The only one-time setup is Settings → Pages → Source: "GitHub Actions". Ther
 no API URL to configure and no backend to host.
 
 ---
-
-## Backend (reference only)
-
-The original FastAPI service and pure-stdlib Python scanner. **Not deployed and
-not part of the app.** It is kept because `scanner/` is a *port* of it, and the
-acceptance test for any scanner change is that the two agree exactly — same
-count, same match list, same order — over the saves in `testing/`.
-
-```bash
-python backend/crosscheck.py <region-dir> <block_type> 100000 > py.txt
-cd scanner && cargo run --release --bin oracle -- <region-dir> <block_type> 100000 > rs.txt
-diff --strip-trailing-cr py.txt rs.txt        # must be empty
-```
-
-See [`backend/README.md`](backend/README.md) for the details, the known-good
-counts, and how to run the old service for spot checks.
 
 ## Status
 
