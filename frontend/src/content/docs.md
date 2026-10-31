@@ -13,8 +13,13 @@ Tarot exists to solve this problem by scanning a save for portal blocks (or any 
 ## How it works
 
 **Nothing is uploaded.** The scan runs on your own machine, inside the browser
-tab. There is no server in the request, no account, and no additional copy of your
-world saved anywhere.
+tab. There is no server in the request and no additional copy of your world
+saved anywhere.
+
+Signing in with Google is optional. If you do, the only things stored are your
+Google account ID, email, name and profile picture, so you can be recognised
+next time. Your save is never sent, signed in or not, and "Delete account"
+removes everything.
 
 This means that your own machine is performing the computation with no waiting around for a large file upload. It also means the website's performance is dependent on the specs of your computer, likely a benefit to most technical players.
 

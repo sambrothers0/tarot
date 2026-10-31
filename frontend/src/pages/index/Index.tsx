@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AccountMenu } from '../../components/auth/AccountMenu'
 import { AmbientBackground } from '../../components/layout/AmbientBackground'
 import { Divider } from '../../components/layout/Divider'
 import { SiteFooter } from '../../components/layout/SiteFooter'
@@ -81,6 +82,10 @@ function App() {
   return (
     <main className="relative min-h-screen overflow-x-hidden bg-[#06040d] text-white">
       <AmbientBackground />
+
+      <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
+        <AccountMenu />
+      </div>
 
       <div className="relative z-10 mx-auto flex w-full max-w-2xl flex-col items-center px-6 pt-14 text-center sm:pt-20">
         <div className="w-full">

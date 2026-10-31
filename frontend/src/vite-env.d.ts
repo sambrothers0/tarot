@@ -3,6 +3,16 @@
 
 export {}
 
+// Both optional: with either unset the account UI is hidden (see lib/api.ts).
+// Inside `declare global` because this file is a module (see below), so a bare
+// interface here would be module-local and merge with nothing.
+declare global {
+  interface ImportMetaEnv {
+    readonly VITE_API_URL?: string
+    readonly VITE_GOOGLE_CLIENT_ID?: string
+  }
+}
+
 // `webkitdirectory` is how every browser exposes directory selection on a file
 // input — it is on `HTMLInputElement` in lib.dom, but @types/react does not
 // list it as a JSX attribute. React 19 passes an unknown lowercase attribute
