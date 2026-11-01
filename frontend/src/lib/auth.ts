@@ -45,5 +45,5 @@ export async function deleteAccount(): Promise<void> {
  * usually up by the time anyone clicks "Sign in".
  */
 export function pingApi(): void {
-  apiFetch<unknown>('/healthz').catch(() => {})
+  apiFetch<unknown>('/health').catch(() => {})
 }

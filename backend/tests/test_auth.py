@@ -22,8 +22,8 @@ def count(factory: sessionmaker[DbSession], model) -> int:
         return db.scalar(select(func.count()).select_from(model))
 
 
-def test_healthz(client: TestClient) -> None:
-    assert client.get("/healthz").json() == {"status": "ok"}
+def test_health(client: TestClient) -> None:
+    assert client.get("/health").json() == {"status": "ok"}
 
 
 def test_first_sign_in_creates_account(client: TestClient, db_factory) -> None:

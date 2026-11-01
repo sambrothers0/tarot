@@ -212,7 +212,7 @@ isn't markup; nothing under `components/` reaches back up into a page.
 - **The accounts API cold-starts.** Cloud Run scales to zero (`--min-instances 0`,
   `--max-instances 1` to stay free and match the tiny DB pool) and
   Neon suspends an idle database, so the first request after idle is slow.
-  `AccountMenu` pings `/healthz` (no DB call) on load to hide it, and the
+  `AccountMenu` pings `/health` (no DB call) on load to hide it, and the
   engine uses `pool_pre_ping` because Neon drops idle connections. Use Neon's
   *direct* connection string, not the `-pooler` host.
 - **Schema changes go through Alembic** (`backend/migrations/`); the container

@@ -20,10 +20,11 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type"],
     )
 
-    @app.get("/healthz", tags=["health"])
-    def healthz() -> dict[str, str]:
+    @app.get("/health", tags=["health"])
+    def health() -> dict[str, str]:
         # No database call: this is both a health check and the
         # frontend's wake-up ping, and neither should wake Neon.
+        # Not /healthz: Cloud Run reserves paths ending in "z".
         return {"status": "ok"}
 
     app.include_router(auth.router)

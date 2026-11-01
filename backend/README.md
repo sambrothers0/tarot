@@ -11,7 +11,7 @@ hosted on Google Cloud Run (free tier, scales to zero).
 
 | Method | Path | Auth | |
 |---|---|---|---|
-| GET | `/healthz` | — | Health check / wake-up ping. Never touches the DB. |
+| GET | `/health` | — | Health check / wake-up ping. Never touches the DB. |
 | POST | `/auth/google` | — | `{credential}` (Google ID token) → `{token, expires_at, user}`. First sign-in creates the account. |
 | POST | `/auth/logout` | bearer | Revoke this session. 204. |
 | GET | `/me` | bearer | The signed-in user. |
@@ -91,6 +91,6 @@ Set repository variables `VITE_API_URL` (the `run.app` service URL) and
 ## Free-tier behaviour
 
 Cloud Run scales to zero when idle and Neon suspends the database, so
-the first request after a quiet spell is slow. The frontend pings `/healthz` on
+the first request after a quiet spell is slow. The frontend pings `/health` on
 page load so the server is usually warm by the time anyone signs in;
 `pool_pre_ping` recovers the connections Neon drops while suspended.
