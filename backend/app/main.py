@@ -22,7 +22,7 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz", tags=["health"])
     def healthz() -> dict[str, str]:
-        # No database call: this is both Koyeb's health check and the
+        # No database call: this is both a health check and the
         # frontend's wake-up ping, and neither should wake Neon.
         return {"status": "ok"}
 

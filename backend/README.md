@@ -5,7 +5,7 @@ are and nothing else: **no save, path or scan result is ever sent here.** The
 frontend works fully without it.
 
 Stack: FastAPI · SQLAlchemy 2 (sync, psycopg 3) · Alembic · Neon Postgres ·
-hosted on a Koyeb free instance.
+hosted on Google Cloud Run (free tier, scales to zero).
 
 ## API
 
@@ -23,7 +23,7 @@ Interactive docs at `/docs` when running.
 `GOOGLE_CLIENT_ID`, `email_verified`), then issues its own random bearer token
 (30 days). Only its SHA-256 is stored, so a database leak leaks no live
 sessions. Bearer tokens rather than cookies because the frontend (`github.io`)
-and the API (`koyeb.app`) are different sites, where a cookie would be
+and the API (`run.app`) are different sites, where a cookie would be
 third-party and blocked. Expired sessions are swept on each sign-in.
 
 ## Local development
@@ -61,22 +61,36 @@ A new migration: `uv run alembic revision --autogenerate -m "…"`, then review 
    `sslmode=require`. The `postgresql://` prefix is rewritten to psycopg 3
    automatically.
 
-### Koyeb
-1. Create a Web Service from this GitHub repo, builder **Dockerfile**, work
-   directory `backend`.
-2. Environment variables: `DATABASE_URL` (as a Koyeb secret),
-   `GOOGLE_CLIENT_ID`, `ALLOWED_ORIGINS=https://<you>.github.io`.
-3. Port 8000, health check `GET /healthz`.
-4. Migrations run on every boot (`alembic upgrade head`), so a deploy is the
-   whole release.
+### Google Cloud Run
+Use the same Google Cloud project as the OAuth client. It needs a billing
+account attached; usage inside the free tier is not charged.
+
+1. One-time:
+   ```bash
+   gcloud config set project <project-id>
+   gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
+       artifactregistry.googleapis.com secretmanager.googleapis.com
+   # Store the Neon URL as a secret, straight from .env so it is never echoed.
+   grep '^DATABASE_URL=' .env | cut -d= -f2- | tr -d '\n' \
+       | gcloud secrets create tarot-database-url --data-file=-
+   ```
+   Then grant the runtime service account (`<project-number>-compute@developer.gserviceaccount.com`)
+   `roles/secretmanager.secretAccessor` on that secret.
+2. Deploy (and redeploy) with `GOOGLE_CLIENT_ID=… ./deploy.sh`. It builds the
+   `Dockerfile` with Cloud Build and deploys to `us-central1` with
+   `--min-instances 0 --max-instances 1`, which keeps it inside the free tier
+   and matches the small connection pool.
+3. Migrations run on every boot (`alembic upgrade head`), so a deploy is the
+   whole release. A failed migration fails the revision and the old one keeps
+   serving.
 
 ### GitHub Pages
-Set repository variables `VITE_API_URL` (the Koyeb URL) and
+Set repository variables `VITE_API_URL` (the `run.app` service URL) and
 `VITE_GOOGLE_CLIENT_ID`; the deploy workflow passes them to the build.
 
 ## Free-tier behaviour
 
-Koyeb scales the instance to zero when idle and Neon suspends the database, so
+Cloud Run scales to zero when idle and Neon suspends the database, so
 the first request after a quiet spell is slow. The frontend pings `/healthz` on
 page load so the server is usually warm by the time anyone signs in;
 `pool_pre_ping` recovers the connections Neon drops while suspended.

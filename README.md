@@ -17,7 +17,7 @@ Live at <https://sambrothers0.github.io/tarot/>.
 |---|---|
 | `scanner/` | Rust crate compiled to WebAssembly. Reads region files, walks chunk NBT, finds the blocks. This is the engine. |
 | `frontend/` | React 19 + TypeScript + Vite UI. Opens the save, drives a pool of wasm workers, draws the map. |
-| `backend/` | Optional FastAPI accounts API (Google sign-in, sessions). Hosted on Koyeb with Neon Postgres. See [`backend/README.md`](backend/README.md). |
+| `backend/` | Optional FastAPI accounts API (Google sign-in, sessions). Hosted on Google Cloud Run with Neon Postgres. See [`backend/README.md`](backend/README.md). |
 | `testing/` | (Untracked) Sample save data for manual verification. |
 
 Agent-facing architecture notes and invariants live in

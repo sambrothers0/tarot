@@ -3,7 +3,7 @@ name: Deploy to GitHub Pages
 # Builds the Rust scanner to WebAssembly, then the Vite frontend, and publishes
 # frontend/dist to GitHub Pages on every push to master that touches either.
 # The whole app is static: the scan runs in the visitor's browser. The optional
-# accounts API (backend/) is deployed separately on Koyeb; point the build at it
+# accounts API (backend/) is deployed separately on Cloud Run; point the build at it
 # with the repo variables VITE_API_URL and VITE_GOOGLE_CLIENT_ID (unset = no
 # sign-in UI). One-time setup is required:
 #   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".

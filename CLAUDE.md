@@ -14,7 +14,8 @@ accounts API handles Google sign-in only. Single-user personal tool. See
 - `scanner/` — Rust crate compiled to WebAssembly. The actual scanner.
 - `frontend/` — React 19 + TypeScript + Vite (Node 20+). Ships to GitHub Pages.
 - `backend/` — the optional accounts API: FastAPI + SQLAlchemy + Alembic on
-  Neon Postgres, deployed to Koyeb from its `Dockerfile`. Google sign-in,
+  Neon Postgres, deployed to Google Cloud Run from its `Dockerfile`
+  (`backend/deploy.sh`). Google sign-in,
   sessions, account deletion. See `backend/README.md`. (Not the old Python
   scanner — that oracle was removed in `25a0c22`; recover it from git history.)
 - `testing/` — sample save zips for manual checks (`test1.zip` ~1.4 MB,
@@ -203,12 +204,13 @@ isn't markup; nothing under `components/` reaches back up into a page.
    renders nothing; the app must stay fully usable signed out and with the API
    down. No save bytes, paths or file names ever go to the API. Sessions are
    opaque bearer tokens in `localStorage` (hash stored server-side), not
-   cookies: Pages and Koyeb are different sites, so a cookie would be
+   cookies: Pages and Cloud Run are different sites, so a cookie would be
    third-party and blocked. Hence CORS has `allow_credentials=False`.
 
 ## Known risks / TODO
 
-- **The accounts API cold-starts.** Koyeb's free instance scales to zero and
+- **The accounts API cold-starts.** Cloud Run scales to zero (`--min-instances 0`,
+  `--max-instances 1` to stay free and match the tiny DB pool) and
   Neon suspends an idle database, so the first request after idle is slow.
   `AccountMenu` pings `/healthz` (no DB call) on load to hide it, and the
   engine uses `pool_pre_ping` because Neon drops idle connections. Use Neon's
