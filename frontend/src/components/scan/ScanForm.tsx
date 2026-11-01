@@ -1,3 +1,4 @@
+import { BLOCK_TYPES } from '../../lib/blockTypes'
 import { DIMENSIONS } from '../../lib/scanOptions'
 import type { Dimension, Phase, SourceKind } from '../../lib/scanOptions'
 import type { SaveInput } from '../../workers/source'
@@ -52,8 +53,18 @@ export function ScanForm({
           value={blockType}
           onChange={(event) => onBlockType(event.target.value)}
           placeholder="minecraft:nether_portal"
+          list="block-types"
+          autoComplete="off"
+          spellCheck={false}
           className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-violet-300/40"
         />
+        <datalist id="block-types">
+          {BLOCK_TYPES.map((block) => (
+            <option key={block.id} value={block.id}>
+              {block.name}
+            </option>
+          ))}
+        </datalist>
       </label>
 
       <div className="grid gap-2 text-left">
