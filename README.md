@@ -5,8 +5,9 @@ world. Pick a save — either a zip or the world folder itself — a dimension, 
 a block type (defaults to `minecraft:nether_portal`), and the matching
 coordinates are plotted on an interactive map.
 
-**The scan runs entirely in your browser.** Your save is never uploaded, there
-is no server, and the whole app is static files.
+**The scan runs entirely in your browser.** Your save is never uploaded and the
+app itself is static files. An optional accounts API (`backend/`) handles Google
+sign-in; it never sees a save, and the app works fully without it.
 
 Live at <https://sambrothers0.github.io/tarot/>.
 
@@ -16,6 +17,7 @@ Live at <https://sambrothers0.github.io/tarot/>.
 |---|---|
 | `scanner/` | Rust crate compiled to WebAssembly. Reads region files, walks chunk NBT, finds the blocks. This is the engine. |
 | `frontend/` | React 19 + TypeScript + Vite UI. Opens the save, drives a pool of wasm workers, draws the map. |
+| `backend/` | Optional FastAPI accounts API (Google sign-in, sessions). Hosted on Google Cloud Run with Neon Postgres. See [`backend/README.md`](backend/README.md). |
 | `testing/` | (Untracked) Sample save data for manual verification. |
 
 Agent-facing architecture notes and invariants live in
@@ -109,8 +111,11 @@ npm run dev         # dev server on http://localhost:5173
 [`.github/workflows/deploy-frontend.yml`](.github/workflows/deploy-frontend.yml)
 builds the Rust crate to wasm, then the Vite bundle, and publishes
 `frontend/dist` on every push to `master` touching `frontend/**` or `scanner/**`.
-The only one-time setup is Settings → Pages → Source: "GitHub Actions". There is
-no API URL to configure and no backend to host.
+The only one-time setup is Settings → Pages → Source: "GitHub Actions".
+
+To turn on accounts, set the repository **variables** (Settings → Secrets and
+variables → Actions → Variables) `VITE_API_URL` and `VITE_GOOGLE_CLIENT_ID`.
+With either unset, the build simply has no sign-in UI.
 
 ---
 

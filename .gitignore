@@ -14,3 +14,6 @@ testing/
 # Rust / wasm build output. Built in CI, and locally via `npm run build:wasm`.
 scanner/target/
 frontend/src/wasm/
+
+# Local secrets (backend DATABASE_URL etc.)
+.env
