@@ -22,14 +22,13 @@ _client = billing_v1.CloudBillingClient()
 def stop_billing(cloud_event) -> None:
     data = json.loads(base64.b64decode(cloud_event.data["message"]["data"]))
     cost, budget = data.get("costAmount", 0), data.get("budgetAmount", 0)
-    name = f"projects/{PROJECT_ID}"
-    # Read the billing state on every notification, not just over budget, so a
-    # below-budget test message proves the permissions are in place.
-    enabled = _client.get_project_billing_info(name=name).billing_enabled
-    print(f"budget notification: cost={cost} budget={budget} billing_enabled={enabled}")
-    if budget <= 0 or cost < budget or not enabled:
+    print(f"budget notification: cost={cost} budget={budget}")
+    if budget <= 0 or cost < budget:
         return
 
+    # No read first: roles/billing.projectManager can unlink billing but not
+    # read it, and unlinking an already-unlinked project is a no-op.
+    name = f"projects/{PROJECT_ID}"
     _client.update_project_billing_info(
         name=name, project_billing_info=billing_v1.ProjectBillingInfo(billing_account_name="")
     )

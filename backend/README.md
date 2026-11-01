@@ -132,11 +132,14 @@ gcloud artifacts repositories set-cleanup-policies cloud-run-source-deploy \
   --location us-central1 --policy ../infra/artifact-cleanup.json --no-dry-run
 ```
 
-Test it without tripping it (cost below budget only logs the billing state):
+Test it without tripping it (cost below budget only logs the notification), then
+confirm the unlink permission with the IAM troubleshooter:
 
 ```bash
 gcloud pubsub topics publish billing-killswitch --message='{"costAmount":0.01,"budgetAmount":1.0}'
 gcloud functions logs read billing-killswitch --region us-central1 --limit 5
+gcloud policy-intelligence troubleshoot-policy iam //cloudresourcemanager.googleapis.com/projects/<project> \
+  --principal-email=$SA --permission=resourcemanager.projects.deleteBillingAssignment
 ```
 
 If it ever fires, the API goes down and the static site keeps working. Re-link
