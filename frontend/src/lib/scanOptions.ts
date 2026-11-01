@@ -41,6 +41,11 @@ export type Phase = 'idle' | 'opening' | 'scanning'
 export type ScanResult = {
   blockType: string
   dimension: string
+  // What was scanned, as the person would recognise it: the zip's file name or
+  // the world folder's name. Shown on the result and kept when it is saved.
+  source: { kind: SourceKind; name: string }
+  // When the scan finished. Saved scans are ordered by this, not by save time.
+  scannedAt: Date
   count: number
   truncated: boolean
   matches: BlockMatch[]

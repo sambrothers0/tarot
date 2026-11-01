@@ -21,9 +21,10 @@ const SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
 
 let loading: Promise<GoogleId> | null = null
 let initialized = false
-// GIS takes one callback at initialize() time; route it to whichever button is
-// currently mounted.
-let onCredential: ((credential: string) => void) | null = null
+// GIS takes one callback at initialize() time; route it to the most recently
+// mounted button. A stack, not a slot: the save prompt's button mounts over the
+// account menu's, and closing the prompt must hand the callback back.
+const credentialHandlers: ((credential: string) => void)[] = []
 
 /** Load the GIS script once, on demand — never for a visitor who doesn't sign in. */
 function loadGoogleIdentity(): Promise<GoogleId> {
@@ -48,39 +49,49 @@ function loadGoogleIdentity(): Promise<GoogleId> {
 }
 
 /**
- * Render the "Sign in with Google" button into `parent`. Returns a cleanup
- * that detaches the callback.
+ * Render Google's sign-in button into `parent`, sized to fill it. Callers lay
+ * it, invisible, over their own styled button (see `GoogleSignInButton`): GIS
+ * only issues an ID token from a click inside its own iframe, so the real
+ * button has to be what receives the click. Returns a cleanup that detaches
+ * the callback.
  */
 export function renderGoogleButton(
   parent: HTMLElement,
   callback: (credential: string) => void,
   onError: (message: string) => void,
+  onRendered: () => void,
 ): () => void {
   let cancelled = false
-  onCredential = callback
+  const handler = (credential: string) => callback(credential)
+  credentialHandlers.push(handler)
   loadGoogleIdentity()
     .then((id) => {
       if (cancelled) return
       if (!initialized) {
         id.initialize({
           client_id: GOOGLE_CLIENT_ID,
-          callback: (response) => onCredential?.(response.credential),
+          callback: (response) => credentialHandlers.at(-1)?.(response.credential),
         })
         initialized = true
       }
       id.renderButton(parent, {
         theme: 'filled_black',
         shape: 'pill',
-        size: 'medium',
+        size: 'large',
         text: 'signin_with',
+        // GIS clamps this to 200–400px.
+        width: Math.round(parent.clientWidth),
       })
+      onRendered()
     })
     .catch((error: unknown) => {
       if (!cancelled) onError(error instanceof Error ? error.message : 'Google sign-in failed to load.')
     })
   return () => {
     cancelled = true
-    if (onCredential === callback) onCredential = null
+    const index = credentialHandlers.indexOf(handler)
+    if (index !== -1) credentialHandlers.splice(index, 1)
+    parent.replaceChildren()
   }
 }
 

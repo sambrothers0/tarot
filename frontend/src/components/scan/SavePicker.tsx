@@ -70,12 +70,12 @@ export function SavePicker({ sourceKind, onSourceKind, onSave, disabled }: Props
 // `FolderFile` is for.
 function readSelection(sourceKind: SourceKind, files: FileList | null): SaveInput | null {
   if (!files || files.length === 0) return null
-  if (sourceKind === 'zip') return { kind: 'zip', file: files[0] }
+  if (sourceKind === 'zip') return { kind: 'zip', name: files[0].name, file: files[0] }
+  const paths = Array.from(files, (file) => file.webkitRelativePath || file.name)
   return {
     kind: 'folder',
-    files: Array.from(files).map((file) => ({
-      path: file.webkitRelativePath || file.name,
-      file,
-    })),
+    // The picked directory is the first segment of every relative path.
+    name: paths[0].split('/')[0],
+    files: Array.from(files, (file, i) => ({ path: paths[i], file })),
   }
 }

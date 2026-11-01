@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { AccountMenu } from '../../components/auth/AccountMenu'
+import { SignInDialog } from '../../components/auth/SignInDialog'
 import { AmbientBackground } from '../../components/layout/AmbientBackground'
 import { Divider } from '../../components/layout/Divider'
 import { SiteFooter } from '../../components/layout/SiteFooter'
 import { MapPanel } from '../../components/scan/MapPanel'
 import { ScanForm } from '../../components/scan/ScanForm'
 import { ScanProgress } from '../../components/scan/ScanProgress'
+import type { SaveState } from '../../components/scan/SaveScanButton'
 import { ScanSummary } from '../../components/scan/ScanSummary'
 import {
   DEFAULT_BLOCK,
@@ -13,12 +15,16 @@ import {
   normalizeBlockType,
 } from '../../lib/scanOptions'
 import type { Dimension, Phase, ScanResult, SourceKind } from '../../lib/scanOptions'
+import { accountsEnabled } from '../../lib/api'
+import { saveScan } from '../../lib/savedScans'
 import { scanWorld } from '../../lib/scanWorld'
+import { useSignedIn } from '../../lib/useSignedIn'
 import type { SaveInput } from '../../workers/source'
 
-// The whole flow: pick a save, scan it in a worker, plot what comes back. This
-// component owns the `idle → opening → scanning` state machine and nothing else
-// — every piece of the page is its own component below `components/`.
+// The whole flow: pick a save, scan it in a worker, plot what comes back, and
+// optionally keep it. This component owns the `idle → opening → scanning` state
+// machine and the save that can follow it — every piece of the page is its own
+// component below `components/`.
 function App() {
   const [sourceKind, setSourceKind] = useState<SourceKind>('zip')
   const [selectedSave, setSelectedSave] = useState<SaveInput | null>(null)
@@ -29,6 +35,9 @@ function App() {
   const [regionsTotal, setRegionsTotal] = useState(0)
   const [result, setResult] = useState<ScanResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [saveState, setSaveState] = useState<SaveState>('idle')
+  const [signInOpen, setSignInOpen] = useState(false)
+  const signedIn = useSignedIn()
 
   const busy = phase !== 'idle'
 
@@ -50,6 +59,7 @@ function App() {
     setRegionsTotal(0)
     setError(null)
     setResult(null)
+    setSaveState('idle')
 
     try {
       const scan = await scanWorld(selectedSave, dimension, blockType, {
@@ -68,6 +78,8 @@ function App() {
       setResult({
         blockType: normalizeBlockType(blockType),
         dimension,
+        source: { kind: selectedSave.kind, name: selectedSave.name },
+        scannedAt: new Date(),
         count: scan.count,
         truncated: scan.truncated,
         matches: scan.matches,
@@ -77,6 +89,24 @@ function App() {
     } finally {
       setPhase('idle')
     }
+  }
+
+  // DESIGN ONLY: `saveScan` is a placeholder that stores nothing yet.
+  const save = async () => {
+    if (!result) return
+    setSaveState('saving')
+    try {
+      await saveScan(result)
+      setSaveState('saved')
+    } catch {
+      setSaveState('failed')
+    }
+  }
+
+  // Signed out, Save opens the sign-in prompt and finishes once it succeeds.
+  const handleSave = () => {
+    if (signedIn) save()
+    else setSignInOpen(true)
   }
 
   return (
@@ -137,7 +167,13 @@ function App() {
             </div>
           ) : null}
 
-          {result ? <ScanSummary result={result} onError={setError} /> : null}
+          {result ? (
+            <ScanSummary
+              result={result}
+              onError={setError}
+              save={accountsEnabled ? { state: saveState, onSave: handleSave } : undefined}
+            />
+          ) : null}
         </section>
       </div>
 
@@ -148,6 +184,17 @@ function App() {
       <Divider className="relative z-10 mx-auto mt-16 max-w-2xl" />
 
       <SiteFooter />
+
+      {accountsEnabled ? (
+        <SignInDialog
+          open={signInOpen}
+          onClose={() => setSignInOpen(false)}
+          onSignedIn={() => {
+            setSignInOpen(false)
+            save()
+          }}
+        />
+      ) : null}
     </main>
   )
 }

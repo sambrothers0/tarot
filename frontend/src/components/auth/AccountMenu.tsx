@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import { accountsEnabled, ApiError, getToken } from '../../lib/api'
+import { useEffect, useState } from 'react'
+import BookmarkIcon from '../../assets/icons/bookmark.svg?react'
+import { accountsEnabled, ApiError, getToken, subscribeToken } from '../../lib/api'
 import { deleteAccount, getMe, pingApi, signInWithGoogle, signOut } from '../../lib/auth'
 import type { User } from '../../lib/auth'
-import { forgetGoogleSelection, renderGoogleButton } from '../../lib/googleIdentity'
+import { forgetGoogleSelection } from '../../lib/googleIdentity'
+import { GoogleSignInButton } from './GoogleSignInButton'
 
 type Status =
   | { kind: 'checking' } // have a stored token, asking the server who it belongs to
@@ -26,7 +28,6 @@ function AccountMenuInner() {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const buttonSlot = useRef<HTMLDivElement>(null)
 
   // Restore a stored session, or just wake the server if there isn't one.
   // State changes only happen in the promise callbacks, never in the body.
@@ -49,6 +50,23 @@ function AccountMenuInner() {
     }
   }, [])
 
+  // The session can also start in the save prompt, or end on any 401, so
+  // follow the token rather than only our own sign-in and sign-out.
+  useEffect(
+    () =>
+      subscribeToken(() => {
+        if (!getToken()) {
+          setOpen(false)
+          setStatus({ kind: 'signed-out' })
+          return
+        }
+        getMe()
+          .then((user) => setStatus({ kind: 'signed-in', user }))
+          .catch(() => {})
+      }),
+    [],
+  )
+
   const handleCredential = async (credential: string) => {
     setBusy(true)
     setError(null)
@@ -60,13 +78,6 @@ function AccountMenuInner() {
       setBusy(false)
     }
   }
-
-  const signedOut = status.kind === 'signed-out'
-  useEffect(() => {
-    if (!signedOut || buttonSlot.current == null) return
-    // Once per sign-out, not per render: re-rendering GIS's iframe flickers.
-    return renderGoogleButton(buttonSlot.current, handleCredential, setError)
-  }, [signedOut])
 
   const leave = async (action: () => Promise<void>, failure: string) => {
     setBusy(true)
@@ -97,7 +108,7 @@ function AccountMenuInner() {
   if (status.kind === 'signed-out') {
     return (
       <div className="flex flex-col items-end">
-        <div ref={buttonSlot} className={busy ? 'pointer-events-none opacity-50' : undefined} />
+        <GoogleSignInButton onCredential={handleCredential} onError={setError} busy={busy} />
         {errorLine}
       </div>
     )
@@ -162,6 +173,16 @@ function AccountMenuInner() {
             </div>
           ) : (
             <div className="mt-2 flex flex-col">
+              {/* A static entry point like /docs, so a plain same-tab link. */}
+              <a
+                role="menuitem"
+                href={`${import.meta.env.BASE_URL}scans/`}
+                className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition hover:bg-white/10"
+              >
+                <BookmarkIcon className="h-4 w-4 text-violet-200/70" aria-hidden="true" />
+                Saved scans
+              </a>
+              <div className="my-1 h-px bg-white/10" />
               <button
                 type="button"
                 role="menuitem"

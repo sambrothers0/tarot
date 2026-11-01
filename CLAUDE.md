@@ -65,9 +65,10 @@ Port of the old Python scanner (removed in `25a0c22`), compiled to `wasm32-unkno
 including why nothing in it may panic, is in `scanner/README.md`.
 
 ### Frontend (`frontend/src/`)
-Five static entry points (`main.tsx`, `pages/docs/docs-main.tsx`,
-`pages/legal/privacy-main.tsx`, `pages/legal/terms-main.tsx`,
-`pages/notfound/not-found-main.tsx`) mount one page each from `pages/`. A page
+Six static entry points (`main.tsx`, `pages/docs/docs-main.tsx`,
+`pages/scans/scans-main.tsx`, `pages/legal/privacy-main.tsx`,
+`pages/legal/terms-main.tsx`, `pages/notfound/not-found-main.tsx`) mount one
+page each from `pages/`. A page
 composes components from `components/` and calls into `lib/` for anything that
 isn't markup; nothing under `components/` reaches back up into a page.
 
@@ -151,11 +152,24 @@ isn't markup; nothing under `components/` reaches back up into a page.
   miss. Vite's dev and preview servers would fall back to `index.html` for a
   miss, so `notFoundFallback()` in `vite.config.ts` intercepts any path no file
   backs and serves this page with a 404 status — local behaviour matches Pages.
-- `lib/api.ts` (fetch wrapper, token storage, `accountsEnabled`), `lib/auth.ts`
+- `pages/scans/SavedScans.tsx` — the `/scans/` page (`frontend/scans/index.html`,
+  in `build.rollupOptions.input` like docs): the account's saved scans, newest
+  *scan* first, grouped by day. Cards are `components/scans/`. **Design only so
+  far**: `lib/savedScans.ts` holds the types and placeholder stubs with sample
+  data (`TODO(wire)`), and the index page's Save goes through the same stub.
+  Saving a scan sends its block, dimension, save name and coordinates to the
+  API — that is a deliberate, opt-in exception to invariant 8, to be reworded
+  when it is wired.
+- `lib/api.ts` (fetch wrapper, token storage + `subscribeToken`, `accountsEnabled`), `lib/auth.ts`
   (sign-in/out, `/me`, delete, `pingApi()` wake-up for the cold-starting free
   host), `lib/googleIdentity.ts` (loads Google Identity Services on demand and
-  renders its button), `components/auth/AccountMenu.tsx` (the only account UI,
-  mounted top-right by `Index.tsx`; owns its own state).
+  renders its button), `lib/useSignedIn.ts` (token presence, reactive).
+  `components/auth/GoogleSignInButton.tsx` is the one sign-in button: a styled
+  pill with GIS's real button laid over it at zero opacity, because GIS only
+  issues a token from a click inside its own iframe. `AccountMenu.tsx` (mounted
+  top-right on the index and scans pages) and `SignInDialog.tsx` (opened by a
+  signed-out Save) both use it, and follow the token via `subscribeToken` so
+  either can start the session.
 - `assets/PortalLoader.tsx`, `index.css` (Tailwind v4 + ambient background
   animation).
 - `assets/icons/*.svg` — icons live here as standalone files, imported as
