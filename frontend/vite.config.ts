@@ -120,11 +120,12 @@ export default defineConfig({
     rollupOptions: {
       // Static entry points, not a client-side router: `docs/index.html`
       // builds to `dist/docs/index.html`, so /docs is a real page that Pages
-      // can serve on a cold load. `404.html` builds to the site root, which is
+      // can serve on a cold load; `scans/index.html` likewise. `404.html` builds to the site root, which is
       // where Pages looks for the page it serves on an unknown path.
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         docs: fileURLToPath(new URL('./docs/index.html', import.meta.url)),
+        scans: fileURLToPath(new URL('./scans/index.html', import.meta.url)),
         // Linked from Google's OAuth consent screen, so they need stable URLs.
         privacy: fileURLToPath(new URL('./privacy/index.html', import.meta.url)),
         terms: fileURLToPath(new URL('./terms/index.html', import.meta.url)),

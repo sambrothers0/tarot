@@ -25,6 +25,19 @@ export function setToken(token: string | null): void {
   } catch {
     // Storage disabled (private mode, policy): the session lasts the page.
   }
+  tokenListeners.forEach((listener) => listener())
+}
+
+// Sign-in can now start from two places (the account menu and the save
+// prompt), and a 401 anywhere ends the session, so whoever shows session state
+// subscribes here rather than tracking it alone.
+const tokenListeners = new Set<() => void>()
+
+export function subscribeToken(listener: () => void): () => void {
+  tokenListeners.add(listener)
+  return () => {
+    tokenListeners.delete(listener)
+  }
 }
 
 export class ApiError extends Error {

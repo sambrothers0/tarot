@@ -28,7 +28,9 @@ export type FolderFile = { path: string; file: File }
  * save crosses to the coordinator worker by structured clone without a byte of
  * it being read, let alone copied.
  */
-export type SaveInput = { kind: 'zip'; file: Blob } | { kind: 'folder'; files: FolderFile[] }
+export type SaveInput =
+  | { kind: 'zip'; name: string; file: Blob }
+  | { kind: 'folder'; name: string; files: FolderFile[] }
 
 /**
  * One file inside a save, whichever form the save took. `name` is its path
