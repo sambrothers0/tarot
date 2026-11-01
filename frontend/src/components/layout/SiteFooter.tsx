@@ -26,6 +26,20 @@ export function SiteFooter() {
         >
           How it works
         </a>
+        <span className="mx-3 text-slate-600" aria-hidden="true">&middot;</span>
+        <a
+          href={`${import.meta.env.BASE_URL}privacy/`}
+          className="underline underline-offset-4 transition hover:text-slate-200"
+        >
+          Privacy
+        </a>
+        <span className="mx-3 text-slate-600" aria-hidden="true">&middot;</span>
+        <a
+          href={`${import.meta.env.BASE_URL}terms/`}
+          className="underline underline-offset-4 transition hover:text-slate-200"
+        >
+          Terms
+        </a>
       </p>
 
       <div className="mx-auto mt-6 flex items-center justify-center gap-3">
