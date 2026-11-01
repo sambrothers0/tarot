@@ -94,3 +94,51 @@ Cloud Run scales to zero when idle and Neon suspends the database, so
 the first request after a quiet spell is slow. The frontend pings `/health` on
 page load so the server is usually warm by the time anyone signs in;
 `pool_pre_ping` recovers the connections Neon drops while suspended.
+
+## Cost guards
+
+Google Cloud has no built-in spending cap, so this project builds one. Everything
+here stays inside the free tier under normal use; these limits bound abuse.
+
+| Guard | Where | What it bounds |
+|---|---|---|
+| One small instance, scale to zero, request-time billing, 30 s timeout | `deploy.sh` | Worst case is one 256 MiB instance busy all month |
+| At most 10 sessions per user | `MAX_SESSIONS_PER_USER`, `routes/auth.py` | Rows one Google account can create by replaying sign-ins |
+| Keep only the 2 newest images | `infra/artifact-cleanup.json` | Artifact Registry storage (0.5 GB free) |
+| $1 budget → Pub/Sub → kill switch | `infra/billing-killswitch/` | Total spend: unlinks billing from the project once spend reaches $1 |
+
+Neon's free plan has no card on file: over its limits it pauses, it never bills.
+
+### Kill switch setup (done once)
+
+```bash
+gcloud pubsub topics create billing-killswitch
+gcloud iam service-accounts create billing-killswitch
+SA=billing-killswitch@<project>.iam.gserviceaccount.com
+gcloud projects add-iam-policy-binding <project> --member=serviceAccount:$SA \
+  --role=roles/billing.projectManager --condition=None     # to unlink billing
+(cd ../infra/billing-killswitch && gcloud functions deploy billing-killswitch --gen2 \
+  --region us-central1 --runtime python312 --source . --entry-point stop_billing \
+  --trigger-topic billing-killswitch --service-account $SA \
+  --set-env-vars TARGET_PROJECT_ID=<project> --memory 256Mi --max-instances 1 \
+  --no-allow-unauthenticated)
+gcloud run services add-iam-policy-binding billing-killswitch --region us-central1 \
+  --member=serviceAccount:$SA --role=roles/run.invoker     # so the trigger can call it
+gcloud billing budgets create --billing-account=<account> --display-name="tarot hard cap" \
+  --budget-amount=1.00USD --filter-projects=projects/<project> \
+  --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0 \
+  --notifications-rule-pubsub-topic=projects/<project>/topics/billing-killswitch
+gcloud artifacts repositories set-cleanup-policies cloud-run-source-deploy \
+  --location us-central1 --policy ../infra/artifact-cleanup.json --no-dry-run
+```
+
+Test it without tripping it (cost below budget only logs the billing state):
+
+```bash
+gcloud pubsub topics publish billing-killswitch --message='{"costAmount":0.01,"budgetAmount":1.0}'
+gcloud functions logs read billing-killswitch --region us-central1 --limit 5
+```
+
+If it ever fires, the API goes down and the static site keeps working. Re-link
+billing in the console (Billing → My projects) once the cause is dealt with.
+Budget data lags by hours, so actual spend can overshoot $1 slightly.

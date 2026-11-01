@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # ALLOWED_ORIGINS=https://you.github.io,http://localhost:5173
     allowed_origins: Annotated[list[str], NoDecode] = []
     session_ttl_days: int = 30
+    # Signing in again adds a session; past this many, the oldest go. Bounds
+    # the rows one Google account can create by replaying sign-ins.
+    max_sessions_per_user: int = 10
 
     @field_validator("database_url")
     @classmethod

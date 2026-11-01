@@ -112,3 +112,17 @@ def test_cors_allows_configured_origin(client: TestClient) -> None:
     )
     assert res.status_code == 200
     assert res.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_sessions_per_user_are_capped(client: TestClient, db_factory) -> None:
+    tokens = [sign_in(client)["token"] for _ in range(12)]
+    assert count(db_factory, Session) == 10
+    # The oldest two were dropped; the newest still work.
+    assert client.get("/me", headers=auth(tokens[0])).status_code == 401
+    assert client.get("/me", headers=auth(tokens[1])).status_code == 401
+    assert client.get("/me", headers=auth(tokens[2])).status_code == 200
+    assert client.get("/me", headers=auth(tokens[-1])).status_code == 200
+    # Another user's sessions are untouched.
+    other = sign_in(client, "bob")["token"]
+    assert client.get("/me", headers=auth(other)).status_code == 200
+    assert count(db_factory, Session) == 11
