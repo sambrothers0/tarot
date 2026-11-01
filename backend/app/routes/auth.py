@@ -45,6 +45,13 @@ def sign_in_with_google(
     # Opportunistic sweep, so expired sessions never need a cron job.
     db.execute(delete(Session).where(Session.expires_at < now))
 
+    # Keep at most max_sessions_per_user, counting the one about to be made.
+    if user.id is not None:
+        stale = select(Session.id).where(Session.user_id == user.id)
+        stale = stale.order_by(Session.created_at.desc(), Session.id.desc())
+        stale = stale.offset(max(settings.max_sessions_per_user - 1, 0))
+        db.execute(delete(Session).where(Session.id.in_(stale)))
+
     token = new_token()
     expires_at = now + timedelta(days=settings.session_ttl_days)
     db.add(Session(user=user, token_hash=hash_token(token), created_at=now, expires_at=expires_at))

@@ -18,6 +18,9 @@ accounts API handles Google sign-in only. Single-user personal tool. See
   (`backend/deploy.sh`). Google sign-in,
   sessions, account deletion. See `backend/README.md`. (Not the old Python
   scanner — that oracle was removed in `25a0c22`; recover it from git history.)
+- `infra/` — Google Cloud cost guards for the API: the billing kill switch
+  (`billing-killswitch/`, a Cloud Function that unlinks billing at $1) and the
+  image cleanup policy. See "Cost guards" in `backend/README.md`.
 - `testing/` — sample save zips for manual checks (`test1.zip` ~1.4 MB,
   `test2.zip` ~1.18 GB).
 
@@ -215,6 +218,9 @@ isn't markup; nothing under `components/` reaches back up into a page.
   `AccountMenu` pings `/health` (no DB call) on load to hide it, and the
   engine uses `pool_pre_ping` because Neon drops idle connections. Use Neon's
   *direct* connection string, not the `-pooler` host.
+- **The API must stay free.** Keep `--max-instances 1` and the small instance
+  in `deploy.sh`, and the per-user session cap; a $1 budget unlinks billing
+  (`infra/billing-killswitch/`), which takes the API down but never the site.
 - **Schema changes go through Alembic** (`backend/migrations/`); the container
   runs `alembic upgrade head` on boot. Keep models portable (no PG-only types)
   — the tests run on SQLite.
