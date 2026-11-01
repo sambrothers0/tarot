@@ -65,7 +65,8 @@ Port of the old Python scanner (removed in `25a0c22`), compiled to `wasm32-unkno
 including why nothing in it may panic, is in `scanner/README.md`.
 
 ### Frontend (`frontend/src/`)
-Three static entry points (`main.tsx`, `pages/docs/docs-main.tsx`,
+Five static entry points (`main.tsx`, `pages/docs/docs-main.tsx`,
+`pages/legal/privacy-main.tsx`, `pages/legal/terms-main.tsx`,
 `pages/notfound/not-found-main.tsx`) mount one page each from `pages/`. A page
 composes components from `components/` and calls into `lib/` for anything that
 isn't markup; nothing under `components/` reaches back up into a page.
@@ -137,6 +138,12 @@ isn't markup; nothing under `components/` reaches back up into a page.
   and Pages serves it on a cold load.
   Note `Docs.tsx` and `docs-main.tsx` must not collide case-insensitively on
   Windows — that is why the entry isn't `docs.tsx`.
+- `pages/legal/LegalPage.tsx` — `/privacy/` and `/terms/` (`frontend/privacy/`,
+  `frontend/terms/`, in `build.rollupOptions.input`), rendering
+  `content/privacy.md` / `content/terms.md` through the shared
+  `components/layout/Prose.tsx` (also used by docs). Google's OAuth consent
+  screen links both, so their URLs must not move, and **the privacy policy
+  must be updated whenever what the API stores changes.**
 - `pages/notfound/NotFound.tsx` + `not-found-main.tsx` — the third static entry
   point, mounted from `frontend/404.html`. It builds to `dist/404.html` at the
   site root, which is where Pages looks for the page to serve on an unknown

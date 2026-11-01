@@ -125,6 +125,9 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         docs: fileURLToPath(new URL('./docs/index.html', import.meta.url)),
+        // Linked from Google's OAuth consent screen, so they need stable URLs.
+        privacy: fileURLToPath(new URL('./privacy/index.html', import.meta.url)),
+        terms: fileURLToPath(new URL('./terms/index.html', import.meta.url)),
         notFound: fileURLToPath(new URL('./404.html', import.meta.url)),
       },
     },
