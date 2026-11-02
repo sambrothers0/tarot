@@ -1,4 +1,4 @@
-import type { BlockMatch, Hovered, Size, View } from './types'
+import type { Hovered, Size, View } from './types'
 import { niceStep, projection } from './view'
 import type { Projection } from './view'
 
@@ -15,12 +15,13 @@ export type Scene = {
   size: Size
   dpr: number
   view: View
-  matches: BlockMatch[]
+  // Distinct columns as flat `x, z` pairs (see `columnPositions`).
+  pins: Int32Array
   hovered: Hovered | null
 }
 
 export function drawMap(ctx: CanvasRenderingContext2D, scene: Scene) {
-  const { size, dpr, view, matches, hovered } = scene
+  const { size, dpr, view, pins, hovered } = scene
   const { w, h } = size
   const proj = projection(view, size)
 
@@ -30,7 +31,7 @@ export function drawMap(ctx: CanvasRenderingContext2D, scene: Scene) {
 
   drawVignette(ctx, size)
   drawGrid(ctx, size, proj, niceStep(view.ppb))
-  drawPins(ctx, size, proj, matches)
+  drawPins(ctx, size, dpr, proj, pins)
   if (hovered) drawHoverRing(ctx, proj, hovered)
   drawAxisChips(ctx, size)
 
@@ -86,24 +87,47 @@ function drawGrid(ctx: CanvasRenderingContext2D, { w, h }: Size, proj: Projectio
   }
 }
 
-// Every visible match in one path — a hundred thousand separate fills would not
-// hold a frame budget.
+// One pin, rasterised once per DPR and stamped per column. Filling thousands of
+// arcs as a single path makes the canvas tessellate every circle and resolve
+// their overlaps on every frame; a `drawImage` of a cached bitmap is a blit the
+// GPU batches.
+let pinSprite: { dpr: number; canvas: HTMLCanvasElement } | null = null
+
+function spriteFor(dpr: number): HTMLCanvasElement {
+  if (pinSprite?.dpr === dpr) return pinSprite.canvas
+  // A device pixel of margin each side so the anti-aliased edge isn't clipped.
+  const side = Math.ceil(POINT_R * 2 * dpr) + 2
+  const canvas = document.createElement('canvas')
+  canvas.width = side
+  canvas.height = side
+  const sctx = canvas.getContext('2d')
+  if (sctx) {
+    sctx.fillStyle = 'white'
+    sctx.beginPath()
+    sctx.arc(side / 2, side / 2, POINT_R * dpr, 0, Math.PI * 2)
+    sctx.fill()
+  }
+  pinSprite = { dpr, canvas }
+  return canvas
+}
+
 function drawPins(
   ctx: CanvasRenderingContext2D,
   { w, h }: Size,
+  dpr: number,
   proj: Projection,
-  matches: BlockMatch[],
+  pins: Int32Array,
 ) {
-  ctx.fillStyle = 'white'
-  ctx.beginPath()
-  for (const m of matches) {
-    const px = proj.toSx(m.x)
-    const py = proj.toSz(m.z)
-    if (px < -POINT_R || px > w + POINT_R || py < -POINT_R || py > h + POINT_R) continue
-    ctx.moveTo(px + POINT_R, py)
-    ctx.arc(px, py, POINT_R, 0, Math.PI * 2)
+  const sprite = spriteFor(dpr)
+  // The context is DPR-scaled, so the sprite is placed in CSS pixels.
+  const side = sprite.width / dpr
+  const half = side / 2
+  for (let i = 0; i < pins.length; i += 2) {
+    const px = proj.toSx(pins[i])
+    const py = proj.toSz(pins[i + 1])
+    if (px < -half || px > w + half || py < -half || py > h + half) continue
+    ctx.drawImage(sprite, px - half, py - half, side, side)
   }
-  ctx.fill()
 }
 
 function drawHoverRing(ctx: CanvasRenderingContext2D, proj: Projection, hovered: Hovered) {

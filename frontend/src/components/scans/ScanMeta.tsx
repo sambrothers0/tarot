@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import ArchiveIcon from '../../assets/icons/archive.svg?react'
 import FolderIcon from '../../assets/icons/folder.svg?react'
 import { blockName } from '../../lib/blockTypes'
@@ -18,15 +19,41 @@ export function DimensionBadge({ dimension }: { dimension: Dimension }) {
   )
 }
 
-/** The block's English name over its ID; modded blocks show the ID alone. */
-export function BlockTitle({ blockType }: { blockType: string }) {
-  const name = blockName(blockType)
+/**
+ * The scan's title: the name it was given, else the block's English name, else
+ * (modded blocks) the ID. The line under it says which block it was. `action`
+ * sits right after the title text — the rename control, so it reads as acting
+ * on the name.
+ */
+export function BlockTitle({
+  blockType,
+  name,
+  large,
+  action,
+}: {
+  blockType: string
+  name?: string | null
+  large?: boolean
+  action?: ReactNode
+}) {
+  const english = blockName(blockType)
   return (
     <span className="grid min-w-0">
-      <span className="truncate text-base font-semibold tracking-tight text-white">
-        {name ?? blockType}
+      <span className="flex min-w-0 items-center gap-1">
+        <span
+          className={`truncate font-semibold tracking-tight text-white transition-[font-size,line-height] duration-500 ${
+            large ? 'text-xl sm:text-2xl' : 'text-base'
+          }`}
+        >
+          {name || english || blockType}
+        </span>
+        {action}
       </span>
-      {name ? <span className="truncate font-mono text-[11px] text-slate-500">{blockType}</span> : null}
+      {name ? (
+        <span className="truncate text-xs text-slate-400">{english ?? blockType}</span>
+      ) : english ? (
+        <span className="truncate font-mono text-[11px] text-slate-500">{blockType}</span>
+      ) : null}
     </span>
   )
 }

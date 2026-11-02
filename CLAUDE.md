@@ -8,7 +8,7 @@ architecture or its invariants change.
 A static web app that finds every block of a given type in a Minecraft save and
 plots the coordinates on a map. **The scan runs entirely in the browser** — the
 save is never uploaded and there is no server in the scan path. An optional
-accounts API handles Google sign-in only. Single-user personal tool. See
+accounts API handles Google sign-in and scans the user chooses to save. Single-user personal tool. See
 `README.md` for the product overview.
 
 - `scanner/` — Rust crate compiled to WebAssembly. The actual scanner.
@@ -16,7 +16,7 @@ accounts API handles Google sign-in only. Single-user personal tool. See
 - `backend/` — the optional accounts API: FastAPI + SQLAlchemy + Alembic on
   Neon Postgres, deployed to Google Cloud Run from its `Dockerfile`
   (`backend/deploy.sh`). Google sign-in,
-  sessions, account deletion. See `backend/README.md`. (Not the old Python
+  sessions, saved scans, account deletion. See `backend/README.md`. (Not the old Python
   scanner — that oracle was removed in `25a0c22`; recover it from git history.)
 - `infra/` — Google Cloud cost guards for the API: the billing kill switch
   (`billing-killswitch/`, a Cloud Function that unlinks billing at $1) and the
@@ -93,6 +93,9 @@ isn't markup; nothing under `components/` reaches back up into a page.
   toggle reliably on a live input; `readSelection()` here is also where a
   folder's paths are captured (invariant 7).
 - `components/scan/` — `ScanForm.tsx` (save, block type, dimension, submit),
+  `DimensionToggle.tsx` (the three-stop dimension slider: native radios under a
+  draggable thumb, icons from `assets/blocks/*.svg`, which are full-colour pixel
+  art rather than `currentColor` icons),
   `ScanProgress.tsx` (both bars), `ScanSummary.tsx` (the result line and bulk
   copy), `MapPanel.tsx` (the square frame the map and its loader live in). All
   controlled by the page; the only state any of them keeps is `ScanSummary`'s
@@ -152,14 +155,20 @@ isn't markup; nothing under `components/` reaches back up into a page.
   miss. Vite's dev and preview servers would fall back to `index.html` for a
   miss, so `notFoundFallback()` in `vite.config.ts` intercepts any path no file
   backs and serves this page with a 404 status — local behaviour matches Pages.
+- **UI vocabulary:** a stored scan result is a **reading**, and the verb is
+  **keep** ("Keep this reading", "Your readings"). User-facing copy never says
+  "save" for this, because a *save* is the Minecraft world being scanned. Code
+  identifiers (`SavedScan`, `saveScan`) and the `/scans/` URL keep their names.
 - `pages/scans/SavedScans.tsx` — the `/scans/` page (`frontend/scans/index.html`,
   in `build.rollupOptions.input` like docs): the account's saved scans, newest
-  *scan* first, grouped by day. Cards are `components/scans/`. **Design only so
-  far**: `lib/savedScans.ts` holds the types and placeholder stubs with sample
-  data (`TODO(wire)`), and the index page's Save goes through the same stub.
-  Saving a scan sends its block, dimension, save name and coordinates to the
-  API — that is a deliberate, opt-in exception to invariant 8, to be reworded
-  when it is wired.
+  *scan* first, grouped by day. Cards are `components/scans/`: pressing one
+  expands it in place into the same `WorldMap` the index page draws (one open
+  at a time — the page owns `openId`; Escape or × closes). The card fetches the
+  coordinates on open and drops them once the close animation ends, so only one
+  scan's matches are ever resident. Cards also rename (inline) and delete.
+  `lib/savedScans.ts` is the API client; `lib/coordsCodec.ts` packs the
+  coordinates (zigzag deltas → byte planes → gzip, ~0.1–1 byte per match) in
+  the browser, and the API stores that blob opaquely.
 - `lib/api.ts` (fetch wrapper, token storage + `subscribeToken`, `accountsEnabled`), `lib/auth.ts`
   (sign-in/out, `/me`, delete, `pingApi()` wake-up for the cold-starting free
   host), `lib/googleIdentity.ts` (loads Google Identity Services on demand and
@@ -199,7 +208,8 @@ isn't markup; nothing under `components/` reaches back up into a page.
 3. **Coordinates cross the wasm boundary as a flat `Int32Array`** of `x, y, z`
    triples, never as objects. A dense block yields hundreds of millions of
    matches; per-match object marshalling costs more than the scan itself. They
-   become `[{x,y,z}]` exactly once, in `lib/scanWorld.ts`.
+   become `[{x,y,z}]` exactly once, in `lib/scanWorld.ts` (a saved scan's do
+   so in `lib/coordsCodec.ts`, its own boundary).
 4. **React Compiler is on.** `babel-plugin-react-compiler` + strict
    `eslint-plugin-react-hooks` v7. Practical rules, mainly in
    `components/worldmap/`:
@@ -226,7 +236,9 @@ isn't markup; nothing under `components/` reaches back up into a page.
 8. **Accounts are optional and never touch a scan.** With `VITE_API_URL` or
    `VITE_GOOGLE_CLIENT_ID` unset, `accountsEnabled` is false and `AccountMenu`
    renders nothing; the app must stay fully usable signed out and with the API
-   down. No save bytes, paths or file names ever go to the API. Sessions are
+   down. No save bytes or paths ever go to the API. The one exception is
+   opt-in: pressing Save sends that *result* — block, dimension, the save's
+   name, counts and the packed coordinates — and nothing else. Sessions are
    opaque bearer tokens in `localStorage` (hash stored server-side), not
    cookies: Pages and Cloud Run are different sites, so a cookie would be
    third-party and blocked. Hence CORS has `allow_credentials=False`.

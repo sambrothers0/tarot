@@ -9,7 +9,7 @@ import { SavedScanCard } from '../../components/scans/SavedScanCard'
 import { dayHeading } from '../../components/scans/when'
 import { accountsEnabled } from '../../lib/api'
 import { signInWithGoogle } from '../../lib/auth'
-import { deleteSavedScan, listSavedScans } from '../../lib/savedScans'
+import { deleteSavedScan, listSavedScans, renameSavedScan } from '../../lib/savedScans'
 import type { SavedScanSummary } from '../../lib/savedScans'
 import { useSignedIn } from '../../lib/useSignedIn'
 
@@ -19,8 +19,9 @@ type List =
   | { kind: 'failed'; message: string }
 
 // The `/scans/` page: every scan the signed-in account has kept, newest scan
-// first, filed under the day it was scanned. A fourth static entry point, like
-// /docs — opening a scan links back to the app with `?scan=<id>`.
+// first, filed under the day it was scanned. A static entry point like /docs.
+// Opening a scan expands its card into the map in place — one at a time, so
+// the page never holds more than one scan's coordinates.
 export function SavedScans() {
   return (
     <main className="relative min-h-screen overflow-x-hidden bg-[#06040d] text-white">
@@ -38,10 +39,7 @@ export function SavedScans() {
           &larr; Back to Tarot
         </a>
 
-        <p className="mt-10 text-xs font-medium uppercase tracking-[0.35em] text-violet-200/70">
-          Saved scans
-        </p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Your readings</h1>
+        <h1 className="mt-10 text-3xl font-semibold tracking-tight sm:text-4xl">Your readings</h1>
 
         <div className="mt-10">{accountsEnabled ? <Body /> : <AccountsOff />}</div>
       </div>
@@ -58,6 +56,17 @@ function Body() {
 
 function ScanList() {
   const [list, setList] = useState<List>({ kind: 'loading' })
+  const [openId, setOpenId] = useState<string | null>(null)
+
+  // Escape closes the open map. The listener lives only while one is open.
+  useEffect(() => {
+    if (openId == null) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenId(null)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [openId])
 
   useEffect(() => {
     let cancelled = false
@@ -80,9 +89,20 @@ function ScanList() {
     )
   }
 
+  const rename = async (id: string, name: string) => {
+    const renamed = await renameSavedScan(id, name)
+    setList((current) =>
+      current.kind === 'ready'
+        ? { ...current, scans: current.scans.map((s) => (s.id === id ? renamed : s)) }
+        : current,
+    )
+  }
+
+  const toggle = (id: string) => setOpenId((current) => (current === id ? null : id))
+
   if (list.kind === 'loading') {
     return (
-      <ul className="grid gap-3" aria-label="Loading saved scans">
+      <ul className="grid gap-3" aria-label="Loading readings">
         {[0, 1, 2].map((i) => (
           <li key={i} className="h-[9.5rem] animate-pulse rounded-3xl border border-violet-300/10 bg-slate-950/50" />
         ))}
@@ -100,10 +120,7 @@ function ScanList() {
 
   if (list.scans.length === 0) {
     return (
-      <Panel
-        title="Nothing saved yet"
-        body="Run a scan, then hit Save under the result. It lands here with the block, the dimension and the save it came from."
-      >
+      <Panel title="No readings yet">
         <a
           href={import.meta.env.BASE_URL}
           className="rounded-full border border-violet-300/20 bg-violet-500/10 px-5 py-2.5 text-sm font-medium text-violet-100 transition hover:bg-violet-400/20"
@@ -125,7 +142,7 @@ function ScanList() {
   return (
     <>
       <p className="-mt-6 mb-8 text-sm text-slate-400">
-        {list.scans.length} {list.scans.length === 1 ? 'scan' : 'scans'} · newest first
+        {list.scans.length} {list.scans.length === 1 ? 'reading' : 'readings'}
       </p>
       <div className="grid gap-10">
         {days.map((day) => (
@@ -136,7 +153,15 @@ function ScanList() {
             </h2>
             <ul className="grid gap-3">
               {day.scans.map((scan) => (
-                <SavedScanCard key={scan.id} scan={scan} now={list.now} onDelete={remove} />
+                <SavedScanCard
+                  key={scan.id}
+                  scan={scan}
+                  now={list.now}
+                  expanded={openId === scan.id}
+                  onToggle={toggle}
+                  onDelete={remove}
+                  onRename={rename}
+                />
               ))}
             </ul>
           </section>
@@ -164,8 +189,8 @@ function SignedOut() {
 
   return (
     <Panel
-      title="Sign in to see your saved scans"
-      body="Scans you save follow your Google account. Your worlds never leave your device — only the coordinates that were found."
+      title="Sign in to see your readings"
+      body="Readings you keep follow your Google account. Your worlds never leave your device — only the coordinates that were found."
     >
       <GoogleSignInButton onCredential={handleCredential} onError={setError} busy={busy} />
       {error ? <p className="mt-3 text-xs text-red-200">{error}</p> : null}
@@ -176,20 +201,20 @@ function SignedOut() {
 function AccountsOff() {
   return (
     <Panel
-      title="Saving isn't available here"
-      body="This copy of Tarot runs without the accounts server, so scans can't be saved. Scanning still works exactly the same."
+      title="Readings aren't available here"
+      body="This copy of Tarot runs without the accounts server, so readings can't be kept. Scanning still works exactly the same."
     />
   )
 }
 
-function Panel({ title, body, children }: { title: string; body: string; children?: ReactNode }) {
+function Panel({ title, body, children }: { title: string; body?: string; children?: ReactNode }) {
   return (
     <section className="flex flex-col items-center rounded-[2rem] border border-violet-300/20 bg-slate-950/60 px-6 py-12 text-center shadow-2xl shadow-black/30 backdrop-blur-xl">
       <span className="flex h-12 w-12 items-center justify-center rounded-full border border-violet-300/25 bg-violet-500/15 text-violet-100">
         <BookmarkIcon className="h-5 w-5" aria-hidden="true" />
       </span>
       <h2 className="mt-5 text-lg font-semibold tracking-tight">{title}</h2>
-      <p className="mt-2 max-w-sm text-sm leading-6 text-slate-400">{body}</p>
+      {body ? <p className="mt-2 max-w-sm text-sm leading-6 text-slate-400">{body}</p> : null}
       {children ? <div className="mt-7 flex flex-col items-center">{children}</div> : null}
     </section>
   )

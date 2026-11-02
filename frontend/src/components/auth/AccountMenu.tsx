@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import BookmarkIcon from '../../assets/icons/bookmark.svg?react'
 import { accountsEnabled, ApiError, getToken, subscribeToken } from '../../lib/api'
 import { deleteAccount, getMe, pingApi, signInWithGoogle, signOut } from '../../lib/auth'
@@ -28,6 +28,29 @@ function AccountMenuInner() {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  // Close on a press anywhere outside the menu, or on Escape. Listening only
+  // while open; the state change happens in the event, not the effect body.
+  useEffect(() => {
+    if (!open) return
+    const close = () => {
+      setOpen(false)
+      setConfirmingDelete(false)
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) close()
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
 
   // Restore a stored session, or just wake the server if there isn't one.
   // State changes only happen in the promise callbacks, never in the body.
@@ -116,7 +139,7 @@ function AccountMenuInner() {
 
   const { user } = status
   return (
-    <div className="relative flex flex-col items-end">
+    <div ref={menuRef} className="relative flex flex-col items-end">
       <button
         type="button"
         onClick={() => {
@@ -149,7 +172,7 @@ function AccountMenuInner() {
           {confirmingDelete ? (
             <div className="mt-3 rounded-xl border border-red-400/20 bg-red-500/10 p-3">
               <p className="text-xs text-red-100">
-                Delete your account and everything saved with it? This can't be undone.
+                Delete your account and every reading kept with it? This can't be undone.
               </p>
               <div className="mt-3 flex gap-2">
                 <button
@@ -180,7 +203,7 @@ function AccountMenuInner() {
                 className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition hover:bg-white/10"
               >
                 <BookmarkIcon className="h-4 w-4 text-violet-200/70" aria-hidden="true" />
-                Saved scans
+                Your readings
               </a>
               <div className="my-1 h-px bg-white/10" />
               <button

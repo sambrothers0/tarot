@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { dimensionLabel, MAX_MATCHES } from '../../lib/scanOptions'
 import type { ScanResult } from '../../lib/scanOptions'
+import { MAP_ID } from './MapPanel'
 import { SourceLabel } from '../scans/ScanMeta'
 import { SaveScanButton } from './SaveScanButton'
 import type { SaveState } from './SaveScanButton'
@@ -10,12 +11,14 @@ type Props = {
   onError: (message: string) => void
   // Absent when accounts aren't configured: no save button at all.
   save?: { state: SaveState; onSave: () => void }
+  // Scroll to and focus the map; the count links there.
+  onShowMap: () => void
 }
 
 // What the scan found, plus the bulk copy and the save. The count is the
 // world's true total; `truncated` says the map (and this copy) only carries the
 // first MAX_MATCHES.
-export function ScanSummary({ result, onError, save }: Props) {
+export function ScanSummary({ result, onError, save, onShowMap }: Props) {
   const [copied, setCopied] = useState(false)
   const cap = MAX_MATCHES.toLocaleString()
 
@@ -33,7 +36,22 @@ export function ScanSummary({ result, onError, save }: Props) {
     <div className="mt-6">
       <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-slate-200">
         <p>
-          Found {result.count.toLocaleString()} matching blocks for{' '}
+          Found{' '}
+          {result.count > 0 ? (
+            <a
+              href={`#${MAP_ID}`}
+              onClick={(event) => {
+                event.preventDefault()
+                onShowMap()
+              }}
+              className="font-medium text-white underline decoration-violet-300/50 underline-offset-4 transition hover:decoration-violet-200"
+            >
+              {result.count.toLocaleString()} matching blocks
+            </a>
+          ) : (
+            'no matching blocks'
+          )}{' '}
+          for{' '}
           <span className="text-violet-200">{result.blockType}</span> in the{' '}
           <span className="text-violet-200">{dimensionLabel(result.dimension)}</span>.
         </p>
@@ -51,7 +69,7 @@ export function ScanSummary({ result, onError, save }: Props) {
             <button
               type="button"
               onClick={copyCoordinates}
-              className="inline-flex items-center gap-2 rounded-full border border-violet-300/20 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-100 transition hover:bg-violet-400/20"
+              className="inline-flex items-center gap-2 rounded-full border border-violet-300/40 px-3 py-1.5 text-xs font-medium text-violet-100 transition hover:border-violet-200/60 hover:bg-white/5"
             >
               {copied
                 ? 'Copied'

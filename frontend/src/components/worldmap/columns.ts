@@ -41,6 +41,24 @@ export function columnAt(
   return { x: best.x, z: best.z, ys, sx: toSx(best.x), sz: toSz(best.z) }
 }
 
+// One `x, z` pair per distinct column, packed flat. The map drops Y, so a stack
+// of matches lands on one pixel — drawing it once per match is wasted fill.
+// Built once per result, not per frame.
+export function columnPositions(matches: BlockMatch[]): Int32Array {
+  const seen = new Set<number>()
+  const out = new Int32Array(matches.length * 2)
+  let n = 0
+  for (const m of matches) {
+    // World coordinates stay within ±2^25, so this key is exact.
+    const key = (m.x + 2 ** 25) * 2 ** 26 + (m.z + 2 ** 25)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out[n++] = m.x
+    out[n++] = m.z
+  }
+  return out.subarray(0, n)
+}
+
 // Whether two hovers would render identically. The anchor is derived from the
 // pin's world position, so sliding the pointer around inside one pin's hit
 // radius compares equal and the tooltip stays put.

@@ -1,8 +1,8 @@
 # Tarot accounts API
 
 Optional FastAPI service behind Tarot's "Sign in with Google". It knows who you
-are and nothing else: **no save, path or scan result is ever sent here.** The
-frontend works fully without it.
+are and the scans you chose to save: **no save file or path is ever sent here**,
+and a scan result only when you press Save. The frontend works fully without it.
 
 Stack: FastAPI · SQLAlchemy 2 (sync, psycopg 3) · Alembic · Neon Postgres ·
 hosted on Google Cloud Run (free tier, scales to zero).
@@ -15,7 +15,12 @@ hosted on Google Cloud Run (free tier, scales to zero).
 | POST | `/auth/google` | — | `{credential}` (Google ID token) → `{token, expires_at, user}`. First sign-in creates the account. |
 | POST | `/auth/logout` | bearer | Revoke this session. 204. |
 | GET | `/me` | bearer | The signed-in user. |
-| DELETE | `/me` | bearer | Delete the account; sessions cascade. 204. |
+| DELETE | `/me` | bearer | Delete the account; sessions and saved scans cascade. 204. |
+| GET | `/scans` | bearer | Saved scans, newest scan first: metadata + a 48-point preview, never the coordinates. |
+| POST | `/scans` | bearer | Save a scan. `coords` is base64 of the browser-packed blob (`frontend/src/lib/coordsCodec.ts`). 201. |
+| GET | `/scans/{id}/coords` | bearer | The packed blob, `application/octet-stream`, cached `immutable` by the browser. |
+| PATCH | `/scans/{id}` | bearer | `{name}` — rename; blank clears it. |
+| DELETE | `/scans/{id}` | bearer | 204. |
 
 Interactive docs at `/docs` when running.
 
@@ -104,6 +109,8 @@ here stays inside the free tier under normal use; these limits bound abuse.
 |---|---|---|
 | One small instance, scale to zero, request-time billing, 30 s timeout | `deploy.sh` | Worst case is one 256 MiB instance busy all month |
 | At most 10 sessions per user | `MAX_SESSIONS_PER_USER`, `routes/auth.py` | Rows one Google account can create by replaying sign-ins |
+| Saved scans: 100 per user, 2 MB each, 20 MB per user, 300 MB in total | `MAX_SCAN*` in `config.py`, `routes/scans.py` | Neon's 0.5 GB storage, however many accounts sign up. Over a limit, Save answers 507 with a reason |
+| Coordinates packed in the browser; blobs cached `immutable` | `lib/coordsCodec.ts`, `routes/scans.py` | Egress (1 GB/month free): a 100k-match scan is tens of KB, and reopening a map is a cache hit |
 | Keep only the 2 newest images | `infra/artifact-cleanup.json` | Artifact Registry storage (0.5 GB free) |
 | $1 budget → Pub/Sub → kill switch | `infra/billing-killswitch/` | Total spend: unlinks billing from the project once spend reaches $1 |
 

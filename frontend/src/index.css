@@ -144,6 +144,85 @@ body {
   }
 }
 
+/* The map's frame, built like a nether portal's: a ring of obsidian blocks
+   (near-black, faint seams every block) around a pane that throws violet
+   light back onto it once there is a map to show. The ring itself stays
+   dark: the violet belongs to the portal, not the stone around it. The seams are two hairline
+   gradients tiled at one block; the pane sits over them, so they only show in
+   the ring. */
+.portal-frame {
+  --block: 18px;
+  position: relative;
+  z-index: 10;
+  margin-inline: auto;
+  padding: var(--block);
+  box-shadow: 0 30px 60px -24px rgba(0, 0, 0, 0.85);
+  /* 90% of the smaller viewport side, snapped down to a whole number of blocks
+     so the seams close on every edge instead of ending on a partial block, and
+     the pane's far edges land on a seam like its near ones. The frame is
+     square, so snapping the width snaps the height too. */
+  width: 90vmin;
+  max-width: 100%;
+}
+
+@supports (width: round(down, 10px, 3px)) {
+  .portal-frame {
+    width: round(down, min(90vmin, 100%), var(--block));
+    max-width: none;
+  }
+}
+
+/* The obsidian itself, on its own layer so the middle can be cut out: only the
+   ring is ever painted, so until a scan fills the pane the interior is a solid
+   deep violet rather than the page behind it. */
+.portal-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  padding: var(--block);
+  pointer-events: none;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  background:
+    /* `round` is a no-op once the width is snapped; without `round()` support
+       it stretches the tiles to a whole count instead. */
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px) 0 0 / var(--block) var(--block) round,
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px) 0 0 / var(--block) var(--block) round,
+    radial-gradient(circle at 30% 20%, #15131b, transparent 60%),
+    radial-gradient(circle at 75% 85%, #110f16, transparent 55%),
+    #060509;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+
+/* Before a scan the pane holds a faint violet haze, an unlit portal: the page
+   still shows through, just tinted, and a dim glow gathers at the edges. A
+   scan lights it, filling it in dark with the full glow. Both states use only
+   colour and shadow so the change between them transitions. */
+.portal-pane {
+  background-color: #0e061e;
+  box-shadow:
+    inset 0 0 0 1px rgba(196, 181, 253, 0.08),
+    inset 0 0 48px rgba(139, 92, 246, 0.14);
+  transition:
+    background-color 700ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 700ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.portal-frame.is-lit .portal-pane {
+  background-color: #08050f;
+  box-shadow:
+    inset 0 0 0 1px rgba(196, 181, 253, 0.32),
+    inset 0 0 64px rgba(139, 92, 246, 0.32);
+}
+
 /* Indeterminate progress bar for the backend processing phase — there's no real
    percent to report, so a violet segment sweeps left-to-right on a loop to show
    the server is still working. */
@@ -175,6 +254,10 @@ body {
     animation: none;
     width: 100%;
     opacity: 0.5;
+  }
+
+  .portal-pane {
+    transition: none;
   }
 }
 

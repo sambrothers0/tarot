@@ -30,8 +30,8 @@ export function SavePicker({ sourceKind, onSourceKind, onSave, disabled }: Props
               onClick={() => onSourceKind(option.id)}
               className={`rounded-full border px-3 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
                 sourceKind === option.id
-                  ? 'border-violet-300/40 bg-violet-500/20 text-violet-50'
-                  : 'border-white/10 bg-white/5 text-slate-400 hover:bg-white/10'
+                  ? 'border-violet-300/60 text-violet-50'
+                  : 'border-white/10 text-slate-400 hover:border-white/20 hover:bg-white/5'
               }`}
             >
               {option.label}
@@ -49,15 +49,38 @@ export function SavePicker({ sourceKind, onSourceKind, onSave, disabled }: Props
         aria-label={sourceKind === 'zip' ? 'Zip file' : 'Save folder'}
         accept={sourceKind === 'zip' ? '.zip,application/zip' : undefined}
         webkitdirectory={sourceKind === 'folder' ? '' : undefined}
+        aria-describedby={HINT_ID}
         onChange={(event) => onSave(readSelection(sourceKind, event.target.files))}
-        className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border-0 file:bg-violet-400/20 file:px-4 file:py-2 file:text-sm file:font-medium file:text-violet-100 hover:bg-white/7"
+        className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border file:border-solid file:border-violet-300/40 file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-medium file:text-violet-100 hover:bg-white/7"
       />
-      <span className="text-xs text-slate-500">
-        {sourceKind === 'zip'
-          ? 'Zipped save folder · scanned locally on your device'
-          : 'The save folder itself · scanned locally on your device'}
-      </span>
+      <SaveHint id={HINT_ID} sourceKind={sourceKind} />
     </div>
+  )
+}
+
+const HINT_ID = 'save-hint'
+
+// What a player wants to know before picking: where the thing is, whether it
+// leaves the machine, and what could go wrong. Folder mode has the most to say —
+// Chrome's own picker calls it an "upload", which is exactly the fear to answer.
+function SaveHint({ id, sourceKind }: { id: string; sourceKind: SourceKind }) {
+  if (sourceKind === 'zip') {
+    return (
+      <p id={id} className="text-xs leading-5 text-slate-400">
+        Read on this device, never uploaded. A save of several GB can take a few minutes,
+        depending on your computer.
+      </p>
+    )
+  }
+  return (
+    <ul id={id} className="grid gap-1 text-xs leading-5 text-slate-400">
+      <li>
+        Pick the world’s own folder, inside{' '}
+        <span className="font-mono text-[0.6875rem] text-violet-100/90">.minecraft/saves</span>.
+      </li>
+      <li>Your browser may call it an “upload”. Nothing leaves this computer.</li>
+      <li>Close the world in Minecraft first, so its files hold still during the scan.</li>
+    </ul>
   )
 }
 
