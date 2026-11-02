@@ -7,9 +7,23 @@ updates:
   - package-ecosystem: npm
     directory: /frontend
     schedule: { interval: weekly }
+    ignore:
+      # Tracks the Node major CI runs on (20), not the newest Node.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
+      # React refuses to run when these disagree, so they move as one PR.
+      react:
+        patterns: [react, react-dom, "@types/react", "@types/react-dom"]
+      # Routine tool bumps, batched. Majors (TypeScript, Babel, …) each get
+      # their own PR, so one big upgrade never blocks the patch releases.
       dev-tooling:
         dependency-type: development
+        update-types: [minor, patch]
+        exclude-patterns:
+          # 0.x, so a "minor" bump can break; and it must match the version
+          # @vitejs/plugin-react expects. Its own PR shows that clearly.
+          - "@rolldown/plugin-babel"
   - package-ecosystem: uv
     directory: /backend
     schedule: { interval: weekly }
