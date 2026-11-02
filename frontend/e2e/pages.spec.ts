@@ -10,7 +10,7 @@ const PAGES = [
   { path: '/privacy/', title: /Privacy/, text: 'Last updated' },
   { path: '/terms/', title: /Terms/, text: 'Last updated' },
   // Built without VITE_API_URL, so accounts are off and the page says so.
-  { path: '/scans/', title: /Tarot/, text: "Saving isn't available here" },
+  { path: '/scans/', title: /Tarot/, text: "Readings aren't available here" },
 ]
 
 for (const { path, title, text } of PAGES) {

@@ -27,18 +27,20 @@ async function scan(
   await page.locator('input[type=file]').setInputFiles(save.path)
   await page.getByLabel('Block type').fill(options.block ?? TARGET)
   await page
-    .getByRole('group', { name: 'Dimension' })
-    .getByRole('button', { name: LABEL[options.dimension ?? 'overworld'] })
-    .click()
+    .getByRole('radiogroup', { name: 'Dimension' })
+    .getByRole('radio', { name: LABEL[options.dimension ?? 'overworld'] })
+    // The radio is visually hidden under its block icon, which takes the click.
+    .check({ force: true })
   await page.getByRole('button', { name: 'Scan world' }).click()
 }
 
 /** Wait for the result line and return its count. */
 async function resultCount(page: Page): Promise<number> {
-  const line = page.getByText(/^Found [\d,]+ matching blocks for/)
+  // A zero count reads "Found no matching blocks for …".
+  const line = page.getByText(/^Found (?:[\d,]+|no) matching blocks for/)
   await expect(line).toBeVisible({ timeout: 30_000 })
   const match = /Found ([\d,]+)/.exec((await line.textContent()) ?? '')
-  return Number(match?.[1].replaceAll(',', ''))
+  return match ? Number(match[1].replaceAll(',', '')) : 0
 }
 
 /** The error panel's text, once it appears. */
@@ -101,10 +103,9 @@ test('scanning does no network I/O beyond loading the site', async ({ page }) =>
 })
 
 test.describe('errors', () => {
-  test('asks for a save before scanning', async ({ page }) => {
+  test('will not scan until a save is chosen', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('button', { name: 'Scan world' }).click()
-    await expect(errorPanel(page)).toHaveText('Choose a save first.')
+    await expect(page.getByRole('button', { name: 'Choose a save to scan' })).toBeDisabled()
   })
 
   test('says so when the dimension has no region files', async ({ page }) => {
