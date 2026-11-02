@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from .config import Settings, get_settings
 from .db import get_db
+from .limits import Limits, retry_after
 from .models import Session, User
 
 # One shared transport so the HTTP connection to Google's cert endpoint is
@@ -34,6 +35,18 @@ def new_token() -> str:
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def get_limits(request: Request) -> Limits:
+    return request.app.state.limits
+
+
+def too_many(wait: float) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many requests. Wait a moment and try again.",
+        headers=retry_after(wait),
+    )
 
 
 def _unauthorized(detail: str) -> HTTPException:
@@ -80,6 +93,7 @@ _bearer = HTTPBearer(auto_error=False)
 def current_session(
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     db: Annotated[DbSession, Depends(get_db)],
+    limits: Annotated[Limits, Depends(get_limits)],
 ) -> Session:
     if creds is None:
         raise _unauthorized("Not signed in")
@@ -95,6 +109,9 @@ def current_session(
         db.delete(session)
         db.commit()
         raise _unauthorized("Session expired")
+    # Per user, so one account cannot exhaust the API for everyone else.
+    if (wait := limits.per_user.hit(session.user_id)) is not None:
+        raise too_many(wait)
     return session
 
 

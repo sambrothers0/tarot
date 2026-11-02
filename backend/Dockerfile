@@ -16,6 +16,11 @@ COPY alembic.ini ./
 COPY migrations ./migrations
 COPY app ./app
 
+# Run unprivileged: nothing here needs root, and a compromise of the app
+# should not come with write access to its own code.
+RUN useradd --system --no-create-home --uid 10001 app
+USER app
+
 EXPOSE 8000
 # Migrate on boot: with a single instance there is no race, and it keeps
 # deploys to one step. `exec` so uvicorn gets SIGTERM directly.

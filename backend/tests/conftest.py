@@ -13,7 +13,9 @@ os.environ.setdefault("DATABASE_URL", "sqlite://")
 os.environ.setdefault("GOOGLE_CLIENT_ID", "test-client-id")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:5173")
 
+from app.config import get_settings  # noqa: E402
 from app.db import Base, get_db  # noqa: E402
+from app.limits import Limits  # noqa: E402
 from app.main import app  # noqa: E402
 from app.security import GoogleIdentity, verify_google_credential  # noqa: E402
 
@@ -51,6 +53,8 @@ def client(db_factory: sessionmaker[Session]) -> Iterator[TestClient]:
         with db_factory() as db:
             yield db
 
+    # Fresh counters per test: limits live in memory on the app.
+    app.state.limits = Limits.from_settings(get_settings())
     app.dependency_overrides[get_db] = _get_db
     app.dependency_overrides[verify_google_credential] = lambda: _fake_verify
     with TestClient(app) as c:

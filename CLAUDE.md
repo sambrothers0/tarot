@@ -211,6 +211,12 @@ isn't markup; nothing under `components/` reaches back up into a page.
   top-right on the index and scans pages) and `SignInDialog.tsx` (opened by a
   signed-out Save) both use it, and follow the token via `subscribeToken` so
   either can start the session.
+- **Content-Security-Policy.** `contentSecurityPolicy()` in `vite.config.ts`
+  stamps a CSP `<meta>` into every built page (Pages cannot send headers; the
+  session token in `localStorage` is what it protects). Build only — the dev
+  server needs inline HMR scripts. A new external origin (script, API, image,
+  iframe) must be added there, or it is blocked. e2e specs import `test` from
+  `e2e/test.ts`, which fails any test that logs a CSP violation.
 - `assets/PortalLoader.tsx`, `index.css` (Tailwind v4 + ambient background
   animation).
 - `assets/icons/*.svg` — icons live here as standalone files, imported as
@@ -284,7 +290,10 @@ isn't markup; nothing under `components/` reaches back up into a page.
   engine uses `pool_pre_ping` because Neon drops idle connections. Use Neon's
   *direct* connection string, not the `-pooler` host.
 - **The API must stay free.** Keep `--max-instances 1` and the small instance
-  in `deploy.sh`, and the per-user session cap; a $1 budget unlinks billing
+  in `deploy.sh`, the per-user session cap, and the in-memory abuse limits in
+  `backend/app/limits.py` (body size, per-user and sign-in rates, daily
+  egress budget — sound only *because* there is one instance; never key them
+  on client IP, which Cloud Run lets the client spoof); a $1 budget unlinks billing
   (`infra/billing-killswitch/`), which takes the API down but never the site.
 - **Schema changes go through Alembic** (`backend/migrations/`); the container
   runs `alembic upgrade head` on boot. Keep models portable (no PG-only types)

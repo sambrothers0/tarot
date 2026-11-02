@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './test'
 
 // Every static entry point builds, loads, renders, and logs no errors. The
 // legal pages' URLs are linked from Google's OAuth consent screen, so their

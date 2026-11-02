@@ -28,6 +28,20 @@ class Settings(BaseSettings):
     max_scan_bytes: int = 2 * 1024 * 1024
     max_scan_bytes_per_user: int = 20 * 1024 * 1024
     max_scan_bytes_total: int = 300 * 1024 * 1024
+    # Abuse limits (app/limits.py), all in memory on the single instance.
+    # Largest legitimate body: a max_scan_bytes blob as base64 (4/3 larger)
+    # plus a little JSON around it.
+    max_body_bytes: int = 3 * 1024 * 1024
+    requests_per_minute_per_user: int = 120
+    # Global, not per IP (see limits.py for why). Each sign-in fetches
+    # Google's certs and writes rows.
+    sign_ins_per_minute: int = 20
+    # Every response byte counts. Cloud Run's free egress is 1 GB a month;
+    # 30 MB a day stays under it even if spent every day.
+    egress_bytes_per_day: int = 30 * 1024 * 1024
+    # FastAPI's /docs, /redoc and /openapi.json. Off in production: they map
+    # the whole API for anyone probing it. Set EXPOSE_DOCS=true locally.
+    expose_docs: bool = False
 
     @field_validator("database_url")
     @classmethod

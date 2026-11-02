@@ -6,8 +6,9 @@ from pydantic import Base64Bytes, BaseModel, ConfigDict, Field, field_validator
 
 
 class GoogleLogin(BaseModel):
-    # The ID token (JWT) Google Identity Services hands the page.
-    credential: str
+    # The ID token (JWT) Google Identity Services hands the page. Real ones
+    # are ~1 KB; the cap keeps junk from reaching the verifier.
+    credential: str = Field(min_length=1, max_length=4096)
 
 
 class UserOut(BaseModel):

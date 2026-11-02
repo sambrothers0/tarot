@@ -111,10 +111,25 @@ here stays inside the free tier under normal use; these limits bound abuse.
 | At most 10 sessions per user | `MAX_SESSIONS_PER_USER`, `routes/auth.py` | Rows one Google account can create by replaying sign-ins |
 | Saved scans: 100 per user, 2 MB each, 20 MB per user, 300 MB in total | `MAX_SCAN*` in `config.py`, `routes/scans.py` | Neon's 0.5 GB storage, however many accounts sign up. Over a limit, Save answers 507 with a reason |
 | Coordinates packed in the browser; blobs cached `immutable` | `lib/coordsCodec.ts`, `routes/scans.py` | Egress (1 GB/month free): a 100k-match scan is tens of KB, and reopening a map is a cache hit |
+| Request bodies capped at 3 MB (413), chunked bodies without a length refused (411) | `MAX_BODY_BYTES`, `limits.py` | Memory on the 256 MiB instance: nothing oversized is ever read or parsed |
+| 120 requests a minute per user; 20 sign-ins a minute in total (429 + `Retry-After`) | `REQUESTS_PER_MINUTE_PER_USER`, `SIGN_INS_PER_MINUTE`, `limits.py` | One account (or a sign-in flood) hogging the single instance and Neon's compute hours |
+| 30 MB of responses a day, then 503 until tomorrow (`/health` exempt) | `EGRESS_BYTES_PER_DAY`, `limits.py` | Egress: a script re-downloading blobs past the browser cache would otherwise burn the 1 GB month in minutes |
 | Keep only the 2 newest images | `infra/artifact-cleanup.json` | Artifact Registry storage (0.5 GB free) |
 | $1 budget → Pub/Sub → kill switch | `infra/billing-killswitch/` | Total spend: unlinks billing from the project once spend reaches $1 |
 
 Neon's free plan has no card on file: over its limits it pauses, it never bills.
+
+The limits in `limits.py` live in memory. That is only sound because there is
+exactly one instance, and a restart or scale-to-zero resets them: they blunt
+an attack while it runs, and the kill switch stays the hard cap. Nothing keys
+on client IP, because Cloud Run passes through whatever `X-Forwarded-For` the
+client sent; per-user keys come from a verified session instead. An
+unauthenticated flood is the one thing the app cannot stop on its own (that
+needs Cloud Armor, which is not free); the kill switch bounds what it costs.
+
+`/docs` and `/openapi.json` are off unless `EXPOSE_DOCS=true` (set it in your
+local `.env`). `backend/.gcloudignore` keeps `.env` out of the source upload
+that `gcloud run deploy --source .` makes to Cloud Build.
 
 ### Kill switch setup (done once)
 

@@ -8,7 +8,8 @@ cd "$(dirname "$0")"
 : "${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID}"
 REGION="${REGION:-us-central1}"         # a free-tier region
 SERVICE="${SERVICE:-tarot-api}"
-ORIGINS="${ALLOWED_ORIGINS:-https://sambrothers0.github.io,http://localhost:5173}"
+# Production only. localhost belongs in a local .env, never on the live API.
+ORIGINS="${ALLOWED_ORIGINS:-https://sambrothers0.github.io}"
 
 # Cost guards: one instance at most, scaled to zero when idle, small, and
 # billed only while a request is in flight (the default). Worst case under

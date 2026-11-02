@@ -10,11 +10,14 @@ from ..config import Settings, get_settings
 from ..db import get_db
 from ..models import Session, User
 from ..schemas import GoogleLogin, LoginOut, UserOut
+from ..limits import Limits
 from ..security import (
     GoogleIdentity,
     current_session,
+    get_limits,
     hash_token,
     new_token,
+    too_many,
     verify_google_credential,
 )
 
@@ -27,8 +30,11 @@ def sign_in_with_google(
     verify: Annotated[Callable[[str], GoogleIdentity], Depends(verify_google_credential)],
     db: Annotated[DbSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    limits: Annotated[Limits, Depends(get_limits)],
 ) -> LoginOut:
     """Sign in, creating the account on first sign-in."""
+    if (wait := limits.sign_ins.hit("all")) is not None:
+        raise too_many(wait)
     identity = verify(body.credential)
     now = datetime.now(timezone.utc)
 

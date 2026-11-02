@@ -17,3 +17,12 @@ frontend/src/wasm/
 
 # Local secrets (backend DATABASE_URL etc.)
 .env
+
+# Never commit keys or local env variants (the examples are fine).
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local design-tool output: holds absolute home-directory paths.
+.impeccable/

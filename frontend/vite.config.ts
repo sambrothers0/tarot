@@ -2,7 +2,7 @@ import type { IncomingMessage } from 'node:http'
 import { readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import babel from '@rolldown/plugin-babel'
@@ -101,8 +101,53 @@ function notFoundFallback(): Plugin {
   }
 }
 
+/**
+ * A Content-Security-Policy `<meta>` on every built page. GitHub Pages cannot
+ * send response headers, so this is the only way to set one. It matters
+ * because the session token lives in localStorage: any injected script could
+ * read it, and the policy limits both what can run and where it could send it.
+ *
+ * Build only: Vite's dev server injects inline scripts for HMR. The e2e suite
+ * runs against the built site, so a policy that breaks the scan fails CI.
+ * Google entries are what Google Identity Services documents it needs.
+ */
+function contentSecurityPolicy(apiUrl: string): Plugin {
+  let apiOrigin = ''
+  try {
+    if (apiUrl) apiOrigin = new URL(apiUrl).origin
+  } catch {
+    throw new Error(`VITE_API_URL is not a URL: ${apiUrl}`)
+  }
+  const gsi = 'https://accounts.google.com/gsi/'
+  const policy = [
+    "default-src 'self'",
+    `script-src 'self' 'wasm-unsafe-eval' ${gsi}client`,
+    // React writes style attributes; GIS injects its own stylesheet.
+    `style-src 'self' 'unsafe-inline' ${gsi}style`,
+    // Google profile pictures in the account menu.
+    "img-src 'self' data: blob: https://*.googleusercontent.com",
+    `connect-src 'self' ${apiOrigin} ${gsi}`.replace(/\s+/g, ' '),
+    `frame-src ${gsi}`,
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; ')
+  return {
+    name: 'tarot:csp',
+    apply: 'build',
+    transformIndexHtml: () => [
+      {
+        tag: 'meta',
+        attrs: { 'http-equiv': 'Content-Security-Policy', content: policy },
+        injectTo: 'head-prepend',
+      },
+    ],
+  }
+}
+
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   // Served from a subpath on GitHub Pages (https://<user>.github.io/tarot/).
   // CI sets VITE_BASE=/tarot/; local dev/build defaults to root.
   base: process.env.VITE_BASE ?? '/',
@@ -114,7 +159,8 @@ export default defineConfig({
     svgr(),
     babel({ presets: [reactCompilerPreset()] }),
     // Unknown paths get 404.html locally too, matching GitHub Pages.
-    notFoundFallback()
+    notFoundFallback(),
+    contentSecurityPolicy(loadEnv(mode, projectRoot, 'VITE_').VITE_API_URL ?? ''),
   ],
   build: {
     rollupOptions: {
@@ -133,4 +179,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

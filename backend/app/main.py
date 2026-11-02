@@ -2,12 +2,25 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
+from .limits import GuardMiddleware, Limits
 from .routes import auth, me, scans
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="Tarot accounts API", version="0.1.0")
+    docs = settings.expose_docs
+    app = FastAPI(
+        title="Tarot accounts API",
+        version="0.1.0",
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
+    )
+    app.state.limits = Limits.from_settings(settings)
+
+    # Added first so it sits *inside* CORS: its 411/413/503 replies still get
+    # CORS headers, so the browser can read why it was refused.
+    app.add_middleware(GuardMiddleware, get_limits=lambda: app.state.limits)
 
     # Bearer tokens, not cookies: the frontend (github.io) and this API are
     # different sites, so a session cookie would be a third-party cookie.

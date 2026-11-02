@@ -1,0 +1,12 @@
+# What `gcloud run deploy --source .` uploads to Cloud Build. Without this file
+# gcloud uploads the whole directory, local .env (the Neon password) included,
+# into a storage bucket, even though .dockerignore keeps it out of the image.
+.gcloudignore
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
