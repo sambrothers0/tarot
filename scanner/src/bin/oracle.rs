@@ -70,8 +70,8 @@ fn main() -> ExitCode {
     let coords = sink.into_coords();
     let mut out = String::with_capacity(coords.len() * 8);
     out.push_str(&format!("count {count}\n"));
-    for triple in coords.chunks_exact(3) {
-        out.push_str(&format!("{} {} {}\n", triple[0], triple[1], triple[2]));
+    for [x, y, z] in coords.as_chunks::<3>().0 {
+        out.push_str(&format!("{x} {y} {z}\n"));
     }
     print!("{out}");
     ExitCode::SUCCESS

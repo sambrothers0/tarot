@@ -336,11 +336,10 @@ fn emit_block_states(
     let flags = &palette.is_target;
 
     let mut idx = 0usize;
-    'outer: for word in longs.chunks_exact(8) {
-        // chunks_exact always hands back exactly 8 bytes, so this cannot fail.
-        let mut value = u64::from_be_bytes([
-            word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7],
-        ]);
+    // `as_chunks` yields whole `[u8; 8]` words; a trailing partial word (which
+    // `long_count * 8` rules out anyway) would land in the ignored remainder.
+    'outer: for word in longs.as_chunks::<8>().0 {
+        let mut value = u64::from_be_bytes(*word);
         for _ in 0..per_long {
             if idx >= SECTION_BLOCKS {
                 break 'outer;
