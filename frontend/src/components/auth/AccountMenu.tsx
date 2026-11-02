@@ -29,6 +29,10 @@ function AccountMenuInner() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  // Set when the delete confirmation is cancelled, so the "Delete account…"
+  // button takes focus back as it remounts instead of focus falling to the page.
+  const refocusDeleteRef = useRef(false)
 
   // Close on a press anywhere outside the menu, or on Escape. Listening only
   // while open; the state change happens in the event, not the effect body.
@@ -42,7 +46,11 @@ function AccountMenuInner() {
       if (!menuRef.current?.contains(event.target as Node)) close()
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close()
+      if (event.key !== 'Escape') return
+      // Focus was inside the panel that is about to disappear: hand it back
+      // to the button that opened it.
+      if (menuRef.current?.contains(document.activeElement)) triggerRef.current?.focus()
+      close()
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
@@ -118,10 +126,14 @@ function AccountMenuInner() {
     }
   }
 
-  const errorLine = error ? <p className="mt-2 max-w-56 text-right text-xs text-red-200">{error}</p> : null
+  const errorLine = error ? <p role="alert" className="mt-2 max-w-56 text-right text-xs text-red-200">{error}</p> : null
 
   if (status.kind === 'checking') {
-    return <div className="h-8 w-8 animate-pulse rounded-full bg-white/10" aria-label="Checking sign-in" />
+    return (
+      <div role="status" className="h-8 w-8 animate-pulse rounded-full bg-white/10">
+        <span className="sr-only">Checking sign-in…</span>
+      </div>
+    )
   }
 
   if (status.kind === 'unavailable') {
@@ -138,17 +150,22 @@ function AccountMenuInner() {
   }
 
   const { user } = status
+  const displayName = user.name ?? user.email
   return (
     <div ref={menuRef} className="relative flex flex-col items-end">
+      {/* A disclosure, not an ARIA menu: the panel holds a link and plain
+          buttons that Tab reaches in order, so it needs no arrow-key roving. */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => {
           setOpen((o) => !o)
           setConfirmingDelete(false)
         }}
         aria-expanded={open}
-        aria-haspopup="menu"
-        aria-label="Account"
+        aria-controls="account-panel"
+        // Starts with the visible name (WCAG 2.5.3), which phones hide.
+        aria-label={`${displayName}, account`}
         className="flex items-center gap-2 rounded-full border border-violet-300/20 bg-slate-950/60 p-1 pr-3 text-xs text-slate-200 backdrop-blur-xl transition hover:bg-white/10"
       >
         {user.picture_url ? (
@@ -156,15 +173,15 @@ function AccountMenuInner() {
           <img src={user.picture_url} alt="" referrerPolicy="no-referrer" className="h-6 w-6 rounded-full" />
         ) : (
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-500/30 text-violet-100">
-            {(user.name ?? user.email).charAt(0).toUpperCase()}
+            {displayName.charAt(0).toUpperCase()}
           </span>
         )}
-        <span className="hidden sm:inline">{user.name ?? user.email}</span>
+        <span className="hidden sm:inline">{displayName}</span>
       </button>
 
       {open ? (
         <div
-          role="menu"
+          id="account-panel"
           className="absolute right-0 top-full mt-2 w-64 rounded-2xl border border-violet-300/20 bg-slate-950/90 p-3 text-left text-sm text-slate-200 shadow-2xl shadow-black/40 backdrop-blur-xl"
         >
           <p className="truncate px-2 text-xs text-slate-400">{user.email}</p>
@@ -177,17 +194,21 @@ function AccountMenuInner() {
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"
-                  role="menuitem"
                   disabled={busy}
                   onClick={() => leave(deleteAccount, 'Could not delete the account.')}
                   className="rounded-full bg-red-500/80 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-500 disabled:opacity-50"
                 >
                   Delete account
                 </button>
+                {/* Focus lands on the safe choice when the question appears. */}
                 <button
                   type="button"
+                  autoFocus
                   disabled={busy}
-                  onClick={() => setConfirmingDelete(false)}
+                  onClick={() => {
+                    refocusDeleteRef.current = true
+                    setConfirmingDelete(false)
+                  }}
                   className="rounded-full px-3 py-1.5 text-xs text-slate-300 transition hover:bg-white/10"
                 >
                   Cancel
@@ -198,7 +219,6 @@ function AccountMenuInner() {
             <div className="mt-2 flex flex-col">
               {/* A static entry point like /docs, so a plain same-tab link. */}
               <a
-                role="menuitem"
                 href={`${import.meta.env.BASE_URL}scans/`}
                 className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition hover:bg-white/10"
               >
@@ -208,7 +228,6 @@ function AccountMenuInner() {
               <div className="my-1 h-px bg-white/10" />
               <button
                 type="button"
-                role="menuitem"
                 disabled={busy}
                 onClick={() => leave(signOut, 'Could not log out.')}
                 className="rounded-lg px-2 py-1.5 text-left transition hover:bg-white/10 disabled:opacity-50"
@@ -216,8 +235,13 @@ function AccountMenuInner() {
                 Log out
               </button>
               <button
+                ref={(el) => {
+                  if (el && refocusDeleteRef.current) {
+                    refocusDeleteRef.current = false
+                    el.focus()
+                  }
+                }}
                 type="button"
-                role="menuitem"
                 disabled={busy}
                 onClick={() => setConfirmingDelete(true)}
                 className="rounded-lg px-2 py-1.5 text-left text-red-200 transition hover:bg-red-500/10 disabled:opacity-50"

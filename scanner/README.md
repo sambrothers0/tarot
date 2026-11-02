@@ -2,12 +2,15 @@
 
 This crate is the engine of the app. It reads Minecraft region files (`.mca`),
 walks each chunk's NBT, and reports every coordinate holding a given block. It
-compiles to WebAssembly and runs in the visitor's browser, which is why the app
-has no backend and nothing gets uploaded.
+compiles to WebAssembly and runs in the visitor's browser, which is why there is
+no server in the scan path and nothing gets uploaded.
 
 It is a **port**, not a rewrite: `src/nbt.rs` mirrors `backend/fastnbt.py` and
-`src/region.rs` mirrors `backend/parser.py`. The Python original is kept as the
-oracle, and the two must agree exactly.
+`src/region.rs` mirrors `backend/parser.py`. That Python original was the
+oracle the port was verified against, byte for byte. It has since been removed
+from the tree (in `425b514`; today's `backend/` is the unrelated accounts API),
+but it is still the check for any change here — recover it from history, as
+below.
 
 ## Why Rust
 
@@ -67,12 +70,22 @@ cargo test          # unit tests: NBT walking, bounds, sink limits, region parsi
 
 ## Verifying against the Python oracle
 
-The port is only correct if it matches. Unpack one dimension's `region/`
-directory from a save, then run both sides and diff:
+The port is only correct if it matches. The Python side is no longer in the
+tree, so first check it out of the commit before its removal into a scratch
+directory:
+
+```bash
+mkdir -p /tmp/oracle && for f in fastnbt.py parser.py crosscheck.py; do
+  git show 425b514^:backend/$f > /tmp/oracle/$f
+done
+```
+
+Then unpack one dimension's `region/` directory from a save, run both sides and
+diff:
 
 ```bash
 cargo run --release --bin oracle -- <region-dir> <block_type> 100000 > rs.txt
-python ../backend/crosscheck.py <region-dir> <block_type> 100000 > py.txt
+python /tmp/oracle/crosscheck.py <region-dir> <block_type> 100000 > py.txt
 diff --strip-trailing-cr rs.txt py.txt        # must be empty
 ```
 

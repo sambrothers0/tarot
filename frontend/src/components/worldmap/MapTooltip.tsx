@@ -17,12 +17,14 @@ function stackRows(ys: number[]): (number | null)[] {
 // every block in the column: X and Z repeat down the stack so only Y changes,
 // the way the blocks actually sit. A tall stack hanging above a pin near the top
 // edge would be cut off by the map's overflow-hidden, so there it flips below.
-export function MapTooltip({ hovered }: { hovered: Hovered }) {
+// Hidden from screen readers: the map announces the same column in words.
+export function MapTooltip({ hovered, keyboard = false }: { hovered: Hovered; keyboard?: boolean }) {
   const rows = stackRows(hovered.ys)
   const below = hovered.sz < rows.length * 19 + 44
 
   return (
     <div
+      aria-hidden="true"
       className={`pointer-events-none absolute z-10 -translate-x-1/2 rounded-lg border border-violet-300/20 bg-slate-950/85 px-2.5 py-1.5 font-mono text-xs leading-snug tabular-nums text-violet-50 shadow-lg shadow-black/40 backdrop-blur ${
         below ? '' : '-translate-y-full'
       }`}
@@ -30,7 +32,7 @@ export function MapTooltip({ hovered }: { hovered: Hovered }) {
     >
       {rows.map((y, i) =>
         y == null ? (
-          <div key="elided" className="text-center text-[10px] text-violet-300/60">
+          <div key="elided" className="text-center text-[10px] text-violet-200/80">
             ⋯ {hovered.ys.length - STACK_HEAD - STACK_TAIL} more ⋯
           </div>
         ) : (
@@ -39,8 +41,8 @@ export function MapTooltip({ hovered }: { hovered: Hovered }) {
           </div>
         ),
       )}
-      <span className="mt-1 block font-sans text-[10px] font-medium tracking-wide text-violet-300/70">
-        click to copy lowest
+      <span className="mt-1 block font-sans text-[10px] font-medium tracking-wide text-violet-200/80">
+        {keyboard ? 'Enter to copy lowest' : 'click to copy lowest'}
       </span>
     </div>
   )

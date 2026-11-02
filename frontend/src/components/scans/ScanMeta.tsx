@@ -52,7 +52,7 @@ export function BlockTitle({
       {name ? (
         <span className="truncate text-xs text-slate-400">{english ?? blockType}</span>
       ) : english ? (
-        <span className="truncate font-mono text-[11px] text-slate-500">{blockType}</span>
+        <span className="truncate font-mono text-[11px] text-slate-400">{blockType}</span>
       ) : null}
     </span>
   )
@@ -63,6 +63,7 @@ export function SourceLabel({ source }: { source: { kind: SourceKind; name: stri
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-slate-400" title={source.name}>
       <Icon
+        role="img"
         className="h-3.5 w-3.5 shrink-0 text-violet-200/60"
         aria-label={source.kind === 'zip' ? 'Zip file' : 'Save folder'}
       />

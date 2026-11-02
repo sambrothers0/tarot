@@ -1,4 +1,5 @@
 import { BLOCK_TYPES } from '../../lib/blockTypes'
+import { dimensionLabel } from '../../lib/scanOptions'
 import type { Dimension, Phase, SourceKind } from '../../lib/scanOptions'
 import type { SaveInput } from '../../workers/source'
 import { DimensionToggle } from './DimensionToggle'
@@ -47,7 +48,9 @@ export function ScanForm({
   const busy = phase !== 'idle'
 
   return (
-    <div className="grid gap-6">
+    // `grid-cols-1` is minmax(0, 1fr): without it the file input's intrinsic
+    // width sets the track, and on a 320px screen the form overflows its card.
+    <div className="grid grid-cols-1 gap-6">
       <SavePicker
         sourceKind={sourceKind}
         onSourceKind={onSourceKind}
@@ -56,10 +59,12 @@ export function ScanForm({
         disabled={busy}
       />
 
-      <label className="grid gap-2 text-left">
+      <label className="grid grid-cols-1 gap-2 text-left">
         <span className="text-xs font-medium uppercase tracking-[0.35em] text-violet-200/70">
           Block type
         </span>
+        {/* The border is the field's only boundary, so it holds 3:1 against the
+            card (WCAG 1.4.11); white/35 is the faintest that does. */}
         <input
           type="text"
           value={blockType}
@@ -68,7 +73,7 @@ export function ScanForm({
           list="block-types"
           autoComplete="off"
           spellCheck={false}
-          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-violet-300/40"
+          className="rounded-2xl border border-white/35 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-400 focus-visible:border-violet-300/60 focus-visible:ring-2 focus-visible:ring-violet-300"
         />
         <datalist id="block-types">
           {BLOCK_TYPES.map((block) => (
@@ -79,10 +84,17 @@ export function ScanForm({
         </datalist>
       </label>
 
-      <div className="grid gap-2 text-left">
-        <span className="text-xs font-medium uppercase tracking-[0.35em] text-violet-200/70">
-          Dimension
-        </span>
+      <div className="grid grid-cols-1 gap-2 text-left">
+        {/* The stops are icons, so the chosen one is also named in words. The
+            radios already tell a screen reader, hence aria-hidden. */}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium uppercase tracking-[0.35em] text-violet-200/70">
+            Dimension
+          </span>
+          <span aria-hidden="true" className="text-xs font-medium text-violet-100">
+            {dimensionLabel(dimension)}
+          </span>
+        </div>
         <DimensionToggle dimension={dimension} onDimension={onDimension} disabled={busy} />
       </div>
 

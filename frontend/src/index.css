@@ -36,6 +36,18 @@ input:-webkit-autofill:focus {
   transition: background-color 9999s ease-out 0s;
 }
 
+/* One visible keyboard focus indicator for everything that doesn't draw its own
+   ring (WCAG 2.4.7). Violet-300 on the near-black page is ~10:1, well past the
+   3:1 a focus indicator needs. It sits in the base layer so any utility
+   outranks it: elements that style `outline-none` plus a `focus-visible:ring-*`
+   keep theirs. Unlayered, it would beat every utility instead. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid #c4b5fd; /* violet-300 */
+    outline-offset: 2px;
+  }
+}
+
 body {
   margin: 0;
   background: #06040d;

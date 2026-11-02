@@ -24,14 +24,15 @@ type List =
 // the page never holds more than one scan's coordinates.
 export function SavedScans() {
   return (
-    <main className="relative min-h-screen overflow-x-hidden bg-[#06040d] text-white">
+    <div className="relative min-h-screen overflow-x-hidden bg-[#06040d] text-white">
       <AmbientBackground />
 
       <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
         <AccountMenu />
       </div>
 
-      <div className="relative z-10 mx-auto w-full max-w-2xl px-6 pt-14 pb-16 sm:pt-20">
+      {/* The footer sits outside <main> so it stays its own landmark. */}
+      <main className="relative z-10 mx-auto w-full max-w-2xl px-6 pt-14 pb-16 sm:pt-20">
         <a
           href={import.meta.env.BASE_URL}
           className="text-sm text-violet-200/70 underline underline-offset-4 transition hover:text-violet-100"
@@ -42,10 +43,10 @@ export function SavedScans() {
         <h1 className="mt-10 text-3xl font-semibold tracking-tight sm:text-4xl">Your readings</h1>
 
         <div className="mt-10">{accountsEnabled ? <Body /> : <AccountsOff />}</div>
-      </div>
+      </main>
 
       <SiteFooter />
-    </main>
+    </div>
   )
 }
 
@@ -58,15 +59,8 @@ function ScanList() {
   const [list, setList] = useState<List>({ kind: 'loading' })
   const [openId, setOpenId] = useState<string | null>(null)
 
-  // Escape closes the open map. The listener lives only while one is open.
-  useEffect(() => {
-    if (openId == null) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpenId(null)
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [openId])
+  // Escape closing the open map lives in the card, which knows where to put
+  // focus back.
 
   useEffect(() => {
     let cancelled = false
@@ -102,17 +96,20 @@ function ScanList() {
 
   if (list.kind === 'loading') {
     return (
-      <ul className="grid gap-3" aria-label="Loading readings">
-        {[0, 1, 2].map((i) => (
-          <li key={i} className="h-[9.5rem] animate-pulse rounded-3xl border border-violet-300/10 bg-slate-950/50" />
-        ))}
-      </ul>
+      <div role="status">
+        <span className="sr-only">Loading your readings…</span>
+        <div className="grid gap-3" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-[9.5rem] animate-pulse rounded-3xl border border-violet-300/10 bg-slate-950/50" />
+          ))}
+        </div>
+      </div>
     )
   }
 
   if (list.kind === 'failed') {
     return (
-      <div className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+      <div role="alert" className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
         {list.message}
       </div>
     )
@@ -146,8 +143,8 @@ function ScanList() {
       </p>
       <div className="grid gap-10">
         {days.map((day) => (
-          <section key={day.heading} aria-label={day.heading}>
-            <h2 className="mb-3 flex items-center gap-3 text-xs font-medium uppercase tracking-[0.25em] text-slate-500">
+          <section key={day.heading}>
+            <h2 className="mb-3 flex items-center gap-3 text-xs font-medium uppercase tracking-[0.25em] text-slate-400">
               {day.heading}
               <span className="h-px flex-1 bg-gradient-to-r from-violet-300/15 to-transparent" />
             </h2>
@@ -193,7 +190,7 @@ function SignedOut() {
       body="Readings you keep follow your Google account. Your worlds never leave your device — only the coordinates that were found."
     >
       <GoogleSignInButton onCredential={handleCredential} onError={setError} busy={busy} />
-      {error ? <p className="mt-3 text-xs text-red-200">{error}</p> : null}
+      {error ? <p role="alert" className="mt-3 text-xs text-red-200">{error}</p> : null}
     </Panel>
   )
 }

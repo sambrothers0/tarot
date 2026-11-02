@@ -42,7 +42,9 @@ Success: a player goes from "where did I put that portal?" to a copied
   autocomplete from Mojang's registry, free text allowed for modded/newer
   blocks) → dimension (overworld / nether / end) → scan → map.
 - On the map: drag to pan, scroll/pinch to zoom, hover a pin for coordinates,
-  click to copy `x y z`; bulk copy of all results.
+  click to copy `x y z`; bulk copy of all results. The same works from the
+  keyboard (crosshair, `N`/`P` to step through matches, Enter to copy), and the
+  site targets WCAG 2.2 AA (`accessibility.md`).
 - The world should be closed in Minecraft before scanning a folder.
 - Optional Google sign-in lets a player keep scan results ("readings") and revisit them on
   the `/scans/` page.

@@ -18,12 +18,12 @@ const components: Components = {
   ),
   p: ({ children }) => <p className="my-5 leading-8 text-slate-300">{children}</p>,
   ul: ({ children }) => (
-    <ul className="my-5 grid gap-2 pl-5 text-slate-300 marker:text-violet-300/60 [&>li]:list-disc [&>li]:leading-8">
+    <ul className="my-5 grid gap-2 pl-5 text-slate-300 marker:text-violet-300/80 [&>li]:list-disc [&>li]:leading-8">
       {children}
     </ul>
   ),
   ol: ({ children }) => (
-    <ol className="my-5 grid gap-2 pl-5 text-slate-300 marker:text-violet-300/60 [&>li]:list-decimal [&>li]:leading-8">
+    <ol className="my-5 grid gap-2 pl-5 text-slate-300 marker:text-violet-300/80 [&>li]:list-decimal [&>li]:leading-8">
       {children}
     </ol>
   ),

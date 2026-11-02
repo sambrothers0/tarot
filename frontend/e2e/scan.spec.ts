@@ -89,6 +89,22 @@ test('the map draws once a scan finishes', async ({ page }) => {
   expect(box?.width).toBeGreaterThan(100)
 })
 
+// The canvas has a keyboard path for anyone not using a pointer (see
+// `accessibility.md`): N steps to a column and says where it is, Enter copies it.
+test('the map can be driven from the keyboard', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await scan(page, { kind: 'zip', path: fx.zip })
+  await resultCount(page)
+  const map = page.getByRole('application', { name: /^Map of 7 matches$/ })
+  await map.focus()
+  await page.keyboard.press('n')
+  await expect(page.getByRole('status').filter({ hasText: /^Location 1 of \d+: X -?\d+, Z -?\d+/ })).toBeAttached()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('status').filter({ hasText: /^Copied -?\d+ -?\d+ -?\d+$/ })).toBeAttached()
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  expect(copied).toMatch(/^-?\d+ -?\d+ -?\d+$/)
+})
+
 test('scanning does no network I/O beyond loading the site', async ({ page }) => {
   const requests: string[] = []
   await page.goto('/')
