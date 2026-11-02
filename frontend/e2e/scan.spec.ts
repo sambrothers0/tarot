@@ -21,8 +21,9 @@ async function scan(
   options: { block?: string; dimension?: Dimension } = {},
 ) {
   await page.goto('/')
-  if (save.kind === 'folder') {
-    await page.getByRole('group', { name: 'Save format' }).getByRole('button', { name: 'Save folder' }).click()
+  // Folder is the default; a zip needs the toggle.
+  if (save.kind === 'zip') {
+    await page.getByRole('group', { name: 'Save format' }).getByRole('button', { name: 'Zip file' }).click()
   }
   await page.locator('input[type=file]').setInputFiles(save.path)
   await page.getByLabel('Block type').fill(options.block ?? TARGET)
@@ -94,6 +95,7 @@ test('scanning does no network I/O beyond loading the site', async ({ page }) =>
   await page.waitForLoadState('networkidle')
   page.on('request', (r) => requests.push(r.url()))
   // Re-run the flow on the already-loaded page.
+  await page.getByRole('group', { name: 'Save format' }).getByRole('button', { name: 'Zip file' }).click()
   await page.locator('input[type=file]').setInputFiles(fx.zip)
   await page.getByRole('button', { name: 'Scan world' }).click()
   await resultCount(page)

@@ -24,8 +24,8 @@ export const dimensionLabel = (id: string) => DIMENSIONS.find((d) => d.id === id
 // itself, arriving as the flat list of every file under it. Either way the
 // browser hands over handles, not bytes.
 export const SOURCES = [
-  { id: 'zip', label: 'Zip file' },
   { id: 'folder', label: 'Save folder' },
+  { id: 'zip', label: 'Zip file' },
 ] as const
 export type SourceKind = (typeof SOURCES)[number]['id']
 

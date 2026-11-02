@@ -28,7 +28,7 @@ import type { SaveInput } from '../../workers/source'
 // machine and the save that can follow it — every piece of the page is its own
 // component below `components/`.
 function App() {
-  const [sourceKind, setSourceKind] = useState<SourceKind>('zip')
+  const [sourceKind, setSourceKind] = useState<SourceKind>('folder')
   const [selectedSave, setSelectedSave] = useState<SaveInput | null>(null)
   const [blockType, setBlockType] = useState(DEFAULT_BLOCK)
   const [dimension, setDimension] = useState<Dimension>(DEFAULT_DIMENSION)
