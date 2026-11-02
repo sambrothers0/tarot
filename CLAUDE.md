@@ -24,7 +24,9 @@ accounts API handles Google sign-in and scans the user chooses to save. Single-u
 - `testing/` — sample save zips for manual checks (`test1.zip` ~1.4 MB,
   `test2.zip` ~1.18 GB).
 
-There is no root build tool. The frontend build drives the scanner build.
+The root `justfile` is a thin task runner over the commands below (`just` lists
+them; `just frontend`, `just backend`, `just dev` for both). It wraps, never
+replaces, the per-package scripts. The frontend build drives the scanner build.
 
 ## Running & checks
 
