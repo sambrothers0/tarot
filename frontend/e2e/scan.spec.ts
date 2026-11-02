@@ -104,11 +104,44 @@ test('scanning does no network I/O beyond loading the site', async ({ page }) =>
   expect(requests.filter((url) => !url.startsWith(origin) && !url.startsWith('blob:'))).toEqual([])
 })
 
-test.describe('errors', () => {
-  test('will not scan until a save is chosen', async ({ page }) => {
+// With no save of their own, a visitor can still run the whole flow: the
+// sample world (`src/assets/sample-world.zip`) is selected until they pick one.
+// It's a real superflat save with two nether portals in the overworld.
+test.describe('sample world', () => {
+  test('is selected when no save is picked, and scans', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByRole('button', { name: 'Choose a save to scan' })).toBeDisabled()
+    await expect(page.getByText('selected until you choose your own')).toBeVisible()
+    await page.getByRole('button', { name: 'Scan the sample world' }).click()
+    expect(await resultCount(page)).toBe(2)
+    await expect(page.getByTitle('Sample world')).toBeVisible()
   })
+
+  test('gives way to a picked save, and comes back when the format changes', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('input[type=file]').setInputFiles(fx.folder)
+    await expect(page.getByText('selected until you choose your own')).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Scan world' })).toBeEnabled()
+
+    await page.getByRole('group', { name: 'Save format' }).getByRole('button', { name: 'Zip file' }).click()
+    await expect(page.getByRole('button', { name: 'Scan the sample world' })).toBeEnabled()
+  })
+
+  test('says it has no Nether without downloading anything', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForLoadState('networkidle')
+    const requests: string[] = []
+    page.on('request', (r) => requests.push(r.url()))
+    await page
+      .getByRole('radiogroup', { name: 'Dimension' })
+      .getByRole('radio', { name: 'Nether' })
+      .check({ force: true })
+    await page.getByRole('button', { name: 'Scan the sample world' }).click()
+    await expect(errorPanel(page)).toContainText('The sample world has no Nether')
+    expect(requests.filter((url) => url.includes('sample-world'))).toEqual([])
+  })
+})
+
+test.describe('errors', () => {
 
   test('says so when the dimension has no region files', async ({ page }) => {
     await scan(page, { kind: 'zip', path: fx.emptyZip })

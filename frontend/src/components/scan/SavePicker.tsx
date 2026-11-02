@@ -6,12 +6,14 @@ type Props = {
   sourceKind: SourceKind
   onSourceKind: (kind: SourceKind) => void
   onSave: (save: SaveInput | null) => void
+  // Nothing of the visitor's own is picked, so Scan will use the sample world.
+  usingSample: boolean
   disabled: boolean
 }
 
 // Picking the save: the zip/folder toggle and the file input it drives. The
 // browser hands over handles here; nothing is read until the scan starts.
-export function SavePicker({ sourceKind, onSourceKind, onSave, disabled }: Props) {
+export function SavePicker({ sourceKind, onSourceKind, onSave, usingSample, disabled }: Props) {
   return (
     <div className="grid gap-2 text-left">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -49,16 +51,26 @@ export function SavePicker({ sourceKind, onSourceKind, onSave, disabled }: Props
         aria-label={sourceKind === 'zip' ? 'Zip file' : 'Save folder'}
         accept={sourceKind === 'zip' ? '.zip,application/zip' : undefined}
         webkitdirectory={sourceKind === 'folder' ? '' : undefined}
-        aria-describedby={HINT_ID}
+        aria-describedby={usingSample ? `${SAMPLE_ID} ${HINT_ID}` : HINT_ID}
         onChange={(event) => onSave(readSelection(sourceKind, event.target.files))}
         className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border file:border-solid file:border-violet-300/40 file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-medium file:text-violet-100 hover:bg-white/7"
       />
+      {/* The input can't display a selection it didn't make, so it reads "No
+          file chosen". This line says what is selected: the sample world,
+          until the visitor picks a save. It goes away once they do. */}
+      {usingSample ? (
+        <p id={SAMPLE_ID} className="text-xs leading-5 text-slate-300">
+          <span className="font-medium text-violet-100">Sample world</span> selected until you
+          choose your own.
+        </p>
+      ) : null}
       <SaveHint id={HINT_ID} sourceKind={sourceKind} />
     </div>
   )
 }
 
 const HINT_ID = 'save-hint'
+const SAMPLE_ID = 'save-sample'
 
 // What a player wants to know before picking: where the thing is, whether it
 // leaves the machine, and what could go wrong. Folder mode has the most to say —

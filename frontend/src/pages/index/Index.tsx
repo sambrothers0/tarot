@@ -13,11 +13,13 @@ import { ScanSummary } from '../../components/scan/ScanSummary'
 import {
   DEFAULT_BLOCK,
   DEFAULT_DIMENSION,
+  dimensionLabel,
   normalizeBlockType,
 } from '../../lib/scanOptions'
 import type { Dimension, Phase, ScanResult, SourceKind } from '../../lib/scanOptions'
 import { accountsEnabled } from '../../lib/api'
 import { reveal } from '../../lib/reveal'
+import { loadSampleWorld, SAMPLE_WORLD_DIMENSIONS } from '../../lib/sampleWorld'
 import { saveScan } from '../../lib/savedScans'
 import { scanWorld } from '../../lib/scanWorld'
 import { useSignedIn } from '../../lib/useSignedIn'
@@ -29,7 +31,10 @@ import type { SaveInput } from '../../workers/source'
 // component below `components/`.
 function App() {
   const [sourceKind, setSourceKind] = useState<SourceKind>('folder')
+  // The visitor's own save. Until they pick one (or after they switch format
+  // or cancel the picker), the sample world is what Scan uses.
   const [selectedSave, setSelectedSave] = useState<SaveInput | null>(null)
+  const usingSample = selectedSave === null
   const [blockType, setBlockType] = useState(DEFAULT_BLOCK)
   const [dimension, setDimension] = useState<Dimension>(DEFAULT_DIMENSION)
   const [phase, setPhase] = useState<Phase>('idle')
@@ -56,8 +61,13 @@ function App() {
   }, [phase])
 
   const handleSubmit = async () => {
-    // Scan is disabled until a save is picked; this only narrows the type.
-    if (!selectedSave) return
+    // Don't download the sample to find a dimension it doesn't have.
+    if (usingSample && !SAMPLE_WORLD_DIMENSIONS.includes(dimension)) {
+      setError(
+        `The sample world has no ${dimensionLabel(dimension)} to scan. Try the Overworld, or choose your own save.`,
+      )
+      return
+    }
 
     setPhase('opening')
     setRegionsDone(0)
@@ -67,7 +77,10 @@ function App() {
     setSaveState('idle')
 
     try {
-      const scan = await scanWorld(selectedSave, dimension, blockType, {
+      // The sample is fetched here, on first use, inside the opening phase, so
+      // its download is covered by the same indeterminate bar as a save's index.
+      const save = selectedSave ?? (await loadSampleWorld())
+      const scan = await scanWorld(save, dimension, blockType, {
         onOpened: (regionCount) => {
           // The save is open and the region count is known, so the bar can go
           // from indeterminate to real. Phase flips here, in an event callback,
@@ -86,7 +99,7 @@ function App() {
         setResult({
           blockType: normalizeBlockType(blockType),
           dimension,
-          source: { kind: selectedSave.kind, name: selectedSave.name },
+          source: { kind: save.kind, name: save.name },
           scannedAt: new Date(),
           count: scan.count,
           truncated: scan.truncated,
@@ -180,7 +193,7 @@ function App() {
               dimension={dimension}
               onDimension={setDimension}
               phase={phase}
-              hasSave={selectedSave !== null}
+              usingSample={usingSample}
               onSubmit={handleSubmit}
             />
 
