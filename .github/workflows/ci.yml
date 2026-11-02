@@ -1,0 +1,199 @@
+name: CI
+
+# Every test layer, on every push to master (and on PRs into it, so a branch
+# can be checked before it lands):
+#
+#   scanner   Rust: rustfmt, clippy, unit + integration + robustness tests
+#   frontend  wasm build, eslint, tsc (app + tests), Vitest, production build
+#   e2e       Playwright against the built site: real scans in a real browser
+#   backend   pytest on SQLite, plus migrations checked against Postgres
+#
+# The Pages deploy (deploy-frontend.yml) waits for this workflow to pass on a
+# push to master. Keep the workflow name "CI": it is matched by name there.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# A newer push to the same branch/PR supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned to match deploy-frontend.yml. Bump both together.
+  WASM_PACK_VERSION: v0.15.0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  scanner:
+    name: Scanner (Rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scanner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain components
+        run: rustup component add rustfmt clippy
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            scanner/target
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('scanner/Cargo.lock') }}
+          restore-keys: cargo-test-${{ runner.os }}-
+
+      - name: rustfmt
+        run: cargo fmt --check
+
+      - name: clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Tests
+        run: cargo test --locked
+
+  frontend:
+    name: Frontend (lint, types, unit, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add the wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            scanner/target
+          key: cargo-wasm-${{ runner.os }}-${{ hashFiles('scanner/Cargo.lock') }}
+          restore-keys: cargo-wasm-${{ runner.os }}-
+
+      - name: Install wasm-pack
+        run: |
+          curl -sSfL "https://github.com/wasm-bindgen/wasm-pack/releases/download/${WASM_PACK_VERSION}/wasm-pack-${WASM_PACK_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            | tar -xz --strip-components=1 -C /usr/local/bin --wildcards '*/wasm-pack'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      # Generates src/wasm/, which tsc needs before it can check anything.
+      - name: Build wasm
+        run: npm run build:wasm
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck (app, config and tests)
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      # Accounts off (no VITE_API_URL): the e2e suite checks that state.
+      - name: Production build
+        run: npx vite build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: frontend/dist
+          retention-days: 3
+
+  e2e:
+    name: End-to-end (Playwright)
+    needs: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: frontend/dist
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
+
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      # Production runs on Neon Postgres; the suite itself uses SQLite, and
+      # this database is where the migrations are checked for real.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tarot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      # The Docker image's version.
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --locked --python 3.12
+
+      - name: Tests
+        run: uv run --python 3.12 pytest -ra
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tarot_test

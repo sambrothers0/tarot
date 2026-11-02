@@ -1,7 +1,9 @@
 name: Deploy to GitHub Pages
 
 # Builds the Rust scanner to WebAssembly, then the Vite frontend, and publishes
-# frontend/dist to GitHub Pages on every push to master that touches either.
+# frontend/dist to GitHub Pages — but only once CI (ci.yml) has passed for a
+# push to master, so a red commit never reaches the site. CI has no path filter,
+# so every green push to master redeploys; an unchanged site redeploys as-is.
 # The whole app is static: the scan runs in the visitor's browser. The optional
 # accounts API (backend/) is deployed separately on Cloud Run; point the build at it
 # with the repo variables VITE_API_URL and VITE_GOOGLE_CLIENT_ID (unset = no
@@ -9,12 +11,11 @@ name: Deploy to GitHub Pages
 #   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [master]
-    paths:
-      - 'frontend/**'
-      - 'scanner/**'
-      - '.github/workflows/deploy-frontend.yml'
+  # Manual deploys skip the CI gate.
   workflow_dispatch: {}
 
 # Allow the deploy job to mint an OIDC token and publish to Pages.
@@ -35,9 +36,17 @@ env:
 
 jobs:
   build:
+    # Only a green CI run for a push (not a PR) to master deploys.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     steps:
+      # Deploy the exact commit CI tested, not whatever master is now.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       # ubuntu-latest ships rustup with a stable toolchain, so only the wasm
       # target needs adding.
@@ -64,10 +73,6 @@ jobs:
           curl -sSfL "https://github.com/wasm-bindgen/wasm-pack/releases/download/${WASM_PACK_VERSION}/wasm-pack-${WASM_PACK_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
             | tar -xz --strip-components=1 -C /usr/local/bin --wildcards '*/wasm-pack'
           wasm-pack --version
-
-      - name: Test the scanner
-        working-directory: scanner
-        run: cargo test --locked
 
       - uses: actions/setup-node@v4
         with:

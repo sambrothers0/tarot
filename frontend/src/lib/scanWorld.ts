@@ -63,7 +63,7 @@ export function scanWorld(
 // The scanner returns a flat run of x,y,z triples — building objects per match
 // inside wasm and marshalling them out is far slower than one Int32Array. Unpack
 // once, here, so nothing downstream has to know about the packed form.
-function unpack(coords: Int32Array): BlockMatch[] {
+export function unpack(coords: Int32Array): BlockMatch[] {
   const matches: BlockMatch[] = new Array(coords.length / 3)
   for (let i = 0, m = 0; i < coords.length; i += 3, m += 1) {
     matches[m] = { x: coords[i], y: coords[i + 1], z: coords[i + 2] }

@@ -103,6 +103,8 @@ npm run build:wasm  # rebuild the scanner
 npm run build       # build:wasm, then tsc -b, then vite build -> dist/
 npm run preview     # preview the production build locally
 npm run lint        # ESLint (strict; React Compiler is on)
+npm test            # Vitest unit tests
+npm run test:e2e    # Playwright, against a prior `npm run build`
 npm run dev         # dev server on http://localhost:5173
 ```
 
@@ -110,8 +112,10 @@ npm run dev         # dev server on http://localhost:5173
 
 [`.github/workflows/deploy-frontend.yml`](.github/workflows/deploy-frontend.yml)
 builds the Rust crate to wasm, then the Vite bundle, and publishes
-`frontend/dist` on every push to `master` touching `frontend/**` or `scanner/**`.
-The only one-time setup is Settings → Pages → Source: "GitHub Actions".
+`frontend/dist` once [CI](.github/workflows/ci.yml) — scanner, frontend unit and
+end-to-end, and backend tests — has passed for a push to `master`. It can also be
+run by hand from the Actions tab. The only one-time setup is Settings → Pages →
+Source: "GitHub Actions".
 
 To turn on accounts, set the repository **variables** (Settings → Secrets and
 variables → Actions → Variables) `VITE_API_URL` and `VITE_GOOGLE_CLIENT_ID`.
