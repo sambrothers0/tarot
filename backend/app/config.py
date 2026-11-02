@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     # Signing in again adds a session; past this many, the oldest go. Bounds
     # the rows one Google account can create by replaying sign-ins.
     max_sessions_per_user: int = 10
+    # Saved-scan quotas. Neon's free plan holds 0.5 GB, and Cloud Run's free
+    # egress is 1 GB a month, so storage is bounded per user and in total.
+    # A typical scan packs to a few KB; MAX_MATCHES (100k) worst case is
+    # well under a megabyte. See "Cost guards" in README.md.
+    max_scans_per_user: int = 100
+    max_scan_bytes: int = 2 * 1024 * 1024
+    max_scan_bytes_per_user: int = 20 * 1024 * 1024
+    max_scan_bytes_total: int = 300 * 1024 * 1024
 
     @field_validator("database_url")
     @classmethod

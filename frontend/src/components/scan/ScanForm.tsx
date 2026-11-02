@@ -1,7 +1,7 @@
 import { BLOCK_TYPES } from '../../lib/blockTypes'
-import { DIMENSIONS } from '../../lib/scanOptions'
 import type { Dimension, Phase, SourceKind } from '../../lib/scanOptions'
 import type { SaveInput } from '../../workers/source'
+import { DimensionToggle } from './DimensionToggle'
 import { SavePicker } from './SavePicker'
 
 type Props = {
@@ -13,11 +13,19 @@ type Props = {
   dimension: Dimension
   onDimension: (dimension: Dimension) => void
   phase: Phase
+  // Whether a save has been picked. Until it has, Scan is disabled and says why.
+  hasSave: boolean
   onSubmit: () => void
 }
 
-const submitLabel = (phase: Phase) =>
-  phase === 'opening' ? 'Opening save...' : phase === 'scanning' ? 'Scanning...' : 'Scan world'
+const submitLabel = (phase: Phase, hasSave: boolean) =>
+  phase === 'opening'
+    ? 'Opening save…'
+    : phase === 'scanning'
+      ? 'Scanning…'
+      : hasSave
+        ? 'Scan world'
+        : 'Choose a save to scan'
 
 // What to scan and where: the save, the block type, the dimension, and the
 // button that starts it. All of it is controlled by the page — the form holds no
@@ -31,12 +39,13 @@ export function ScanForm({
   dimension,
   onDimension,
   phase,
+  hasSave,
   onSubmit,
 }: Props) {
   const busy = phase !== 'idle'
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-6">
       <SavePicker
         sourceKind={sourceKind}
         onSourceKind={onSourceKind}
@@ -71,33 +80,24 @@ export function ScanForm({
         <span className="text-xs font-medium uppercase tracking-[0.35em] text-violet-200/70">
           Dimension
         </span>
-        <div role="group" aria-label="Dimension" className="grid grid-cols-3 gap-2">
-          {DIMENSIONS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              aria-pressed={dimension === option.id}
-              disabled={busy}
-              onClick={() => onDimension(option.id)}
-              className={`rounded-2xl border px-4 py-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                dimension === option.id
-                  ? 'border-violet-300/40 bg-violet-500/20 text-violet-50 shadow-sm shadow-violet-500/20'
-                  : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <DimensionToggle dimension={dimension} onDimension={onDimension} disabled={busy} />
       </div>
 
+      {/* The one filled element in the card: everything else is outline or
+          field, so the action outranks the choices that feed it. Disabled
+          until there is a save, with the reason as its label rather than an
+          error after the click. */}
       <button
         type="button"
         onClick={onSubmit}
-        disabled={busy}
-        className="rounded-full border border-violet-300/20 bg-violet-500/10 px-5 py-3 text-sm font-medium text-violet-100 shadow-sm transition hover:bg-violet-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={busy || !hasSave}
+        className={`rounded-full px-5 py-3.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+          hasSave
+            ? 'bg-violet-600 text-white shadow-lg shadow-violet-950/60 hover:bg-violet-500 active:translate-y-px disabled:cursor-wait disabled:bg-violet-600/70 disabled:text-violet-100'
+            : 'cursor-not-allowed border border-dashed border-white/15 text-slate-400'
+        }`}
       >
-        {submitLabel(phase)}
+        {submitLabel(phase, hasSave)}
       </button>
     </div>
   )

@@ -1,19 +1,20 @@
 import type { BlockMatch } from '../components/worldmap/types'
+import { apiFetch, apiFetchBytes } from './api'
+import { packCoords, toBase64, unpackCoords } from './coordsCodec'
 import type { Dimension, ScanResult, SourceKind } from './scanOptions'
 
-// Saved scans: the shapes the UI is built against, and — for now — placeholder
-// calls behind them. DESIGN ONLY: nothing here talks to the API yet.
-//
-// The intended split (see the storage notes in the PR): the list is metadata
-// plus a tiny preview, small enough to fetch every row of at once; the
-// coordinates are a separate compressed blob fetched only when a scan is
-// opened. Every function below keeps that split so the wiring drops in.
+// Saved scans, through the accounts API. The split is deliberate: the list is
+// metadata plus a tiny preview, small enough to fetch every row of at once;
+// the coordinates are a separate compressed blob (`coordsCodec.ts`) fetched
+// only when a scan is opened, and cached by the browser after that.
 
 // How many X/Z points a summary carries for its thumbnail.
 export const PREVIEW_POINTS = 48
 
 export type SavedScanSummary = {
   id: string
+  // The person's own label, or null to title it by its block.
+  name: string | null
   blockType: string
   dimension: Dimension
   source: { kind: SourceKind; name: string }
@@ -25,6 +26,31 @@ export type SavedScanSummary = {
   preview: [number, number][]
 }
 
+type ScanRow = {
+  id: string
+  name: string | null
+  block_type: string
+  dimension: Dimension
+  source_kind: SourceKind
+  source_name: string
+  scanned_at: string
+  count: number
+  truncated: boolean
+  preview: [number, number][]
+}
+
+const fromRow = (row: ScanRow): SavedScanSummary => ({
+  id: row.id,
+  name: row.name,
+  blockType: row.block_type,
+  dimension: row.dimension,
+  source: { kind: row.source_kind, name: row.source_name },
+  scannedAt: new Date(row.scanned_at),
+  count: row.count,
+  truncated: row.truncated,
+  preview: row.preview,
+})
+
 /** Evenly sample up to PREVIEW_POINTS distinct columns from a scan's matches. */
 export function previewPoints(matches: BlockMatch[]): [number, number][] {
   const columns = new Map<string, [number, number]>()
@@ -35,121 +61,44 @@ export function previewPoints(matches: BlockMatch[]): [number, number][] {
   return Array.from({ length: PREVIEW_POINTS }, (_, i) => all[Math.floor(i * step)])
 }
 
-// TODO(wire): POST /scans (metadata JSON) + PUT the packed coordinates.
 export async function saveScan(result: ScanResult): Promise<SavedScanSummary> {
-  await new Promise((resolve) => setTimeout(resolve, 700))
-  return {
-    id: crypto.randomUUID(),
-    blockType: result.blockType,
-    dimension: result.dimension as Dimension,
-    source: result.source,
-    scannedAt: result.scannedAt,
-    count: result.count,
-    truncated: result.truncated,
-    preview: previewPoints(result.matches),
-  }
-}
-
-// TODO(wire): GET /scans, newest scan first (ORDER BY scanned_at DESC).
-export async function listSavedScans(): Promise<SavedScanSummary[]> {
-  await new Promise((resolve) => setTimeout(resolve, 500))
-  return sampleScans().sort((a, b) => b.scannedAt.getTime() - a.scannedAt.getTime())
-}
-
-// TODO(wire): DELETE /scans/{id}.
-export async function deleteSavedScan(id: string): Promise<void> {
-  void id
-  await new Promise((resolve) => setTimeout(resolve, 300))
-}
-
-// --- Placeholder data, deleted with the stubs above. ---
-
-function sampleScans(): SavedScanSummary[] {
-  const now = Date.now()
-  const hours = (h: number) => new Date(now - h * 3_600_000)
-  return [
-    {
-      id: 'sample-1',
-      blockType: 'minecraft:nether_portal',
-      dimension: 'overworld',
-      source: { kind: 'zip', name: 'Survival SMP 2024.zip' },
-      scannedAt: hours(0.4),
-      count: 186,
-      truncated: false,
-      preview: scatter(1, 9, 1800, 3),
-    },
-    {
-      id: 'sample-2',
-      blockType: 'minecraft:ancient_debris',
-      dimension: 'nether',
-      source: { kind: 'folder', name: 'Survival SMP 2024' },
-      scannedAt: hours(3),
-      count: 1_204,
-      truncated: false,
-      preview: scatter(2, 48, 600, 40),
-    },
-    {
-      id: 'sample-3',
-      blockType: 'minecraft:end_portal_frame',
-      dimension: 'overworld',
-      source: { kind: 'zip', name: 'hardcore-attempt-7.zip' },
-      scannedAt: hours(27),
-      count: 36,
-      truncated: false,
-      preview: scatter(3, 3, 2400, 2),
-    },
-    {
-      id: 'sample-4',
-      blockType: 'minecraft:deepslate_diamond_ore',
-      dimension: 'overworld',
-      source: { kind: 'folder', name: 'New World (3)' },
-      scannedAt: hours(30),
-      count: 3_418_552,
-      truncated: true,
-      preview: scatter(4, 48, 900, 400),
-    },
-    {
-      id: 'sample-5',
-      blockType: 'minecraft:end_gateway',
-      dimension: 'end',
-      source: { kind: 'zip', name: 'Survival SMP 2024.zip' },
-      scannedAt: hours(24 * 6),
-      count: 20,
-      truncated: false,
-      preview: ring(20, 1000),
-    },
-    {
-      id: 'sample-6',
-      blockType: 'create:brass_casing',
-      dimension: 'overworld',
-      source: { kind: 'zip', name: 'create-modpack-base.zip' },
-      scannedAt: hours(24 * 19),
-      count: 640,
-      truncated: false,
-      preview: scatter(6, 14, 120, 12),
-    },
-  ]
-}
-
-// Deterministic clusters: `clusters` centres across ±`spread`, a few points each.
-function scatter(seed: number, clusters: number, spread: number, jitter: number): [number, number][] {
-  let s = seed * 9301 + 49297
-  const rand = () => ((s = (s * 9301 + 49297) % 233280) / 233280) * 2 - 1
-  const points: [number, number][] = []
-  for (let c = 0; c < clusters && points.length < PREVIEW_POINTS; c++) {
-    const cx = rand() * spread
-    const cz = rand() * spread
-    const n = Math.max(1, Math.round(PREVIEW_POINTS / clusters))
-    for (let i = 0; i < n && points.length < PREVIEW_POINTS; i++) {
-      points.push([Math.round(cx + rand() * jitter), Math.round(cz + rand() * jitter)])
-    }
-  }
-  return points
-}
-
-function ring(n: number, radius: number): [number, number][] {
-  return Array.from({ length: n }, (_, i) => {
-    const a = (i / n) * Math.PI * 2
-    return [Math.round(Math.cos(a) * radius), Math.round(Math.sin(a) * radius)] as [number, number]
+  const coords = toBase64(await packCoords(result.matches))
+  const row = await apiFetch<ScanRow>('/scans', {
+    method: 'POST',
+    body: JSON.stringify({
+      block_type: result.blockType,
+      dimension: result.dimension,
+      source_kind: result.source.kind,
+      source_name: result.source.name.slice(0, 255),
+      scanned_at: result.scannedAt.toISOString(),
+      count: result.count,
+      truncated: result.truncated,
+      preview: previewPoints(result.matches),
+      coords,
+    }),
   })
+  return fromRow(row)
+}
+
+/** Newest scan first (by when it was scanned, not when it was saved). */
+export async function listSavedScans(): Promise<SavedScanSummary[]> {
+  return (await apiFetch<ScanRow[]>('/scans')).map(fromRow)
+}
+
+/** A saved scan's coordinates, in the `[{x,y,z}]` form the map takes. */
+export async function loadScanMatches(id: string): Promise<BlockMatch[]> {
+  return unpackCoords(await apiFetchBytes(`/scans/${encodeURIComponent(id)}/coords`))
+}
+
+/** Blank clears the name back to the block's. */
+export async function renameSavedScan(id: string, name: string): Promise<SavedScanSummary> {
+  const row = await apiFetch<ScanRow>(`/scans/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name: name.trim() || null }),
+  })
+  return fromRow(row)
+}
+
+export async function deleteSavedScan(id: string): Promise<void> {
+  await apiFetch<void>(`/scans/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }

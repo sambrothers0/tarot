@@ -47,12 +47,14 @@ so you stay signed in. The server stores only a one-way hash of that token,
 never the token itself. Sessions expire after 30 days, and signing out revokes
 the session immediately. Tarot does not use cookies.
 
-## Saved scans
+## Readings
 
-If you choose to save a scan to your account, Tarot stores the block type,
-dimension, the save's name and the coordinates found, so you can view them
-later. This only happens when you press Save while signed in; nothing is saved
-automatically.
+If you choose to keep a scan's result (a "reading") in your account, Tarot stores the block type,
+dimension, the name of the save file or folder, when the scan ran, how many
+blocks it found, the coordinates found (up to the first 100,000), and any name
+you give the reading, so you can view them later. This only happens when you press
+Keep while signed in; nothing is kept automatically. Deleting a reading
+removes it from the database immediately.
 
 ## Service providers
 

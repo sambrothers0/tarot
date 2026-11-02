@@ -40,7 +40,7 @@ export function MapTooltip({ hovered }: { hovered: Hovered }) {
         ),
       )}
       <span className="mt-1 block font-sans text-[10px] font-medium tracking-wide text-violet-300/70">
-        {hovered.ys.length > 1 ? 'click to copy the lowest' : 'click to copy'}
+        click to copy lowest
       </span>
     </div>
   )

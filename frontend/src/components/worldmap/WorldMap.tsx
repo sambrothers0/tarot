@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { columnAt, sameColumn } from './columns'
+import { columnAt, columnPositions, sameColumn } from './columns'
 import { CoordinateReadout, CopyToast, ZoomControls } from './MapHud'
 import { MapTooltip } from './MapTooltip'
 import { drawMap } from './render'
@@ -42,6 +42,8 @@ export function WorldMap({ matches }: Props) {
   const sizeRef = useRef({ w: 0, h: 0 })
   const dprRef = useRef(1)
   const matchesRef = useRef<BlockMatch[]>(matches)
+  // What the canvas actually plots, derived once per result in the effect below.
+  const pinsRef = useRef<Int32Array>(new Int32Array(0))
   const didFitRef = useRef(false)
   const rafRef = useRef<number | null>(null)
   const dragRef = useRef<Drag | null>(null)
@@ -86,7 +88,7 @@ export function WorldMap({ matches }: Props) {
       size,
       dpr: dprRef.current,
       view: viewRef.current,
-      matches: matchesRef.current,
+      pins: pinsRef.current,
       hovered: hoveredRef.current,
     })
   }, [fit])
@@ -138,6 +140,7 @@ export function WorldMap({ matches }: Props) {
   // refs and schedules a frame — the fit (and its setState) runs inside draw.
   useEffect(() => {
     matchesRef.current = matches
+    pinsRef.current = columnPositions(matches)
     hoveredRef.current = null
     didFitRef.current = false
     scheduleDraw()
@@ -244,8 +247,12 @@ export function WorldMap({ matches }: Props) {
       applyHover(columnHere(px, py))
     }
 
+    // A drag keeps the world point under the pointer pinned, so most moves land
+    // on the same block — keep the old object then, and React skips the render.
     const { toWx, toWz } = projection(view, sizeRef.current)
-    setReadout({ x: Math.round(toWx(px)), z: Math.round(toWz(py)) })
+    const x = Math.round(toWx(px))
+    const z = Math.round(toWz(py))
+    setReadout((prev) => (prev?.x === x && prev.z === z ? prev : { x, z }))
   }
 
   const endDrag = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -276,7 +283,7 @@ export function WorldMap({ matches }: Props) {
   return (
     <div
       ref={containerRef}
-      className="relative aspect-square w-full select-none overflow-hidden rounded-2xl"
+      className="relative aspect-square w-full select-none overflow-hidden"
     >
       <canvas
         ref={canvasRef}

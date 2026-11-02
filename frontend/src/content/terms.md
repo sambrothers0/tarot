@@ -14,8 +14,8 @@ law.
 ## Your content
 
 Your Minecraft saves stay on your computer and remain yours. Tarot doesn't
-receive them and claims no rights over them. If you save scan results to an
-account, you keep ownership of those too; Tarot stores them only so it can show
+receive them and claims no rights over them. If you keep readings (scan results) in
+an account, you keep ownership of those too; Tarot stores them only so it can show
 them back to you.
 
 ## Accounts
@@ -29,7 +29,7 @@ data is handled is described in the [Privacy Policy](../privacy/).
 
 Tarot is provided **"as is"**, without warranties of any kind. It reads your
 save but never writes to it; even so, it's a hobby project, results may be
-incomplete or wrong, and features (including accounts and saved scans) may
+incomplete or wrong, and features (including accounts and readings) may
 change, break or be discontinued at any time without notice. Keep your own
 backups of anything important.
 

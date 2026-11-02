@@ -55,20 +55,20 @@ export function SignInDialog({ open, onClose, onSignedIn }: Props) {
             <BookmarkIcon className="h-5 w-5" aria-hidden="true" />
           </span>
           <h2 id="sign-in-title" className="mt-5 text-xl font-semibold tracking-tight">
-            Sign in to save this scan
+            Sign in to keep this reading
           </h2>
           <p className="mt-3 text-sm leading-6 text-slate-300">
-            Saved scans live with your Google account, so any map can be reopened later — on any
-            device, without scanning again.
+            Readings you keep live with your Google account, so any map can be reopened later — on
+            any device, without scanning again.
           </p>
 
           <ul className="mt-5 grid w-full gap-1.5 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-left text-xs leading-5 text-slate-400">
             <li>
-              <span className="text-slate-200">Saved:</span> the block, the dimension, the save's
+              <span className="text-slate-200">Kept:</span> the block, the dimension, the world's
               name, and the coordinates found.
             </li>
             <li>
-              <span className="text-slate-200">Never saved:</span> the world itself. It is still read
+              <span className="text-slate-200">Never sent:</span> the world itself. It is still read
               only on this device.
             </li>
           </ul>

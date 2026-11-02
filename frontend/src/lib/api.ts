@@ -1,6 +1,7 @@
 // The accounts API. Optional by design: with VITE_API_URL or
 // VITE_GOOGLE_CLIENT_ID unset there is no account UI at all, and the app works
-// exactly as it does signed out. Nothing about a scan ever goes through here.
+// exactly as it does signed out. Scanning never goes through here; the only
+// scan data the API sees is a result the person chose to save.
 
 const API_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? ''
@@ -49,6 +50,18 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await request(path, init)
+  if (res.status === 204) return undefined as T
+  return (await res.json()) as T
+}
+
+/** A binary response body, e.g. a saved scan's packed coordinates. */
+export async function apiFetchBytes(path: string): Promise<Uint8Array<ArrayBuffer>> {
+  const res = await request(path, {})
+  return new Uint8Array(await res.arrayBuffer())
+}
+
+async function request(path: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers)
   const token = getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
@@ -75,6 +88,5 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     }
     throw new ApiError(res.status, detail)
   }
-  if (res.status === 204) return undefined as T
-  return (await res.json()) as T
+  return res
 }

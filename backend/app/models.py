@@ -1,8 +1,19 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, Uuid
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Uuid,
+)
+from sqlalchemy.orm import Mapped, deferred, mapped_column, relationship
 
 from .db import Base
 
@@ -28,6 +39,9 @@ class User(Base):
     sessions: Mapped[list["Session"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
+    scans: Mapped[list["SavedScan"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class Session(Base):
@@ -44,3 +58,35 @@ class Session(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="sessions")
+
+
+class SavedScan(Base):
+    """A scan the user chose to keep: what was searched for, where, and the
+    coordinates found. The coordinates arrive already packed and compressed by
+    the browser (see frontend `lib/coordsCodec.ts`) and are stored as an opaque
+    blob; the server never decodes them."""
+
+    __tablename__ = "saved_scans"
+    __table_args__ = (Index("ix_saved_scans_user_scanned", "user_id", "scanned_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # The person's own label; unset, the UI titles a scan by its block.
+    name: Mapped[str | None] = mapped_column(String(100))
+    block_type: Mapped[str] = mapped_column(String(255))
+    dimension: Mapped[str] = mapped_column(String(16))
+    source_kind: Mapped[str] = mapped_column(String(16))
+    source_name: Mapped[str] = mapped_column(String(255))
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # The world's true total; the blob holds at most the frontend's MAX_MATCHES.
+    count: Mapped[int] = mapped_column(BigInteger)
+    truncated: Mapped[bool] = mapped_column(Boolean)
+    # A few dozen [x, z] pairs, so the list can draw thumbnails without blobs.
+    preview: Mapped[list[list[int]]] = mapped_column(JSON)
+    # Deferred: listing scans must never pull every blob off the database.
+    coords: Mapped[bytes] = deferred(mapped_column(LargeBinary, nullable=False))
+    # len(coords), kept alongside so quotas are a SUM over a small column.
+    coords_bytes: Mapped[int] = mapped_column(Integer)
+
+    user: Mapped[User] = relationship(back_populates="scans")
