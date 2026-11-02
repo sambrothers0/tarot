@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { columnAt, columnCoords, sameColumn } from './columns'
+import { columnAt, columnCoords, describeColumn, sameColumn } from './columns'
 import { projection } from './view'
 
 const size = { w: 400, h: 400 }
@@ -65,5 +65,18 @@ describe('columnCoords', () => {
   it('formats the lowest block for /tp', () => {
     const hit = columnAt(matches, view, size, toSx(10), toSz(20))!
     expect(columnCoords(hit)).toBe('10 64 20')
+  })
+})
+
+describe('describeColumn', () => {
+  it('reads a single block', () => {
+    expect(describeColumn({ x: 3, z: -7, ys: [64], sx: 0, sz: 0 })).toBe('X 3, Z -7, Y 64, 1 block')
+  })
+
+  it('reads a stack low to high', () => {
+    // `ys` is highest-first, as columnAt builds it.
+    expect(describeColumn({ x: 0, z: 0, ys: [70, 69, 68], sx: 0, sz: 0 })).toBe(
+      'X 0, Z 0, Y 68 to 70, 3 blocks',
+    )
   })
 })

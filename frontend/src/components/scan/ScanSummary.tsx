@@ -69,6 +69,8 @@ export function ScanSummary({ result, onError, save, onShowMap }: Props) {
             <button
               type="button"
               onClick={copyCoordinates}
+              // So the switch to "Copied" is spoken, not just shown.
+              aria-live="polite"
               className="inline-flex items-center gap-2 rounded-full border border-violet-300/40 px-3 py-1.5 text-xs font-medium text-violet-100 transition hover:border-violet-200/60 hover:bg-white/5"
             >
               {copied

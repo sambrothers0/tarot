@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import type { KeyboardEvent, TransitionEvent } from 'react'
 import { PortalLoader } from '../../assets/PortalLoader'
 import CloseIcon from '../../assets/icons/close.svg?react'
@@ -50,6 +50,17 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
   const cardRef = useRef<HTMLLIElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
+  const toggleRef = useRef<HTMLButtonElement | null>(null)
+  // Set just before a control is swapped out (the rename field, the delete
+  // question), so the control that comes back takes focus as it mounts rather
+  // than focus falling to the page.
+  const refocusRef = useRef<'rename' | 'delete' | null>(null)
+  const refocus = (which: 'rename' | 'delete') => (el: HTMLButtonElement | null) => {
+    if (el && refocusRef.current === which) {
+      refocusRef.current = null
+      el.focus()
+    }
+  }
   // Cancels the scroll that follows an opening map, while one is running.
   const stopFollowRef = useRef<(() => void) | null>(null)
   useEffect(() => () => stopFollowRef.current?.(), [])
@@ -127,6 +138,24 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
     onToggle(scan.id)
   }
 
+  // Close the map. If focus was inside the card, park it on the header button,
+  // since whatever held it is about to go inert.
+  const close = () => {
+    if (cardRef.current?.contains(document.activeElement)) toggleRef.current?.focus()
+    onToggle(scan.id)
+  }
+
+  // Escape closes the open map. The listener lives only while this one is open.
+  const onEscape = useEffectEvent(close)
+  useEffect(() => {
+    if (!expanded) return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') onEscape()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [expanded])
+
   // Fires when the open/close height animation settles.
   const onBodyTransitionEnd = (event: TransitionEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget || event.propertyName !== 'grid-template-rows') return
@@ -157,12 +186,14 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
   const commitRename = async () => {
     if (renaming) return
     if (draft.trim() === (scan.name ?? '')) {
+      refocusRef.current = 'rename'
       setEditing(false)
       return
     }
     setRenaming(true)
     try {
       await onRename(scan.id, draft)
+      refocusRef.current = 'rename'
       setEditing(false)
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Could not rename this reading.')
@@ -176,6 +207,7 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
     if (event.key === 'Escape') {
       // Cancel the edit, not the open map behind it.
       event.stopPropagation()
+      refocusRef.current = 'rename'
       setEditing(false)
     }
   }
@@ -203,6 +235,7 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
           map; the controls inside sit above that button. */}
       <div className="relative flex p-4 sm:p-5">
         <button
+          ref={toggleRef}
           type="button"
           onClick={toggle}
           aria-expanded={expanded}
@@ -233,11 +266,12 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
                   maxLength={100}
                   placeholder={blockName(scan.blockType) ?? scan.blockType}
                   aria-label="Reading name"
-                  className={`pointer-events-auto -mx-2 rounded-lg border border-violet-300/30 bg-white/5 px-2 font-semibold tracking-tight text-white outline-none placeholder:text-slate-500 focus:border-violet-300/60 disabled:opacity-60 ${
+                  aria-describedby={`rename-hint-${scan.id}`}
+                  className={`pointer-events-auto -mx-2 rounded-lg border border-violet-300/30 bg-white/5 px-2 font-semibold tracking-tight text-white outline-none placeholder:text-slate-400 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-300/60 disabled:opacity-60 ${
                     expanded ? 'py-0.5 text-xl sm:text-2xl' : 'py-0 text-base'
                   }`}
                 />
-                <span className="mt-1 text-[11px] text-slate-500">
+                <span id={`rename-hint-${scan.id}`} className="mt-1 text-[11px] text-slate-400">
                   Enter to rename · Esc to cancel · leave blank for the block&rsquo;s name
                 </span>
               </span>
@@ -248,11 +282,12 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
                 large={expanded}
                 action={
                   <button
+                    ref={refocus('rename')}
                     type="button"
                     onClick={startRename}
                     aria-label="Rename reading"
                     title="Rename"
-                    className="pointer-events-auto shrink-0 rounded-full p-1.5 text-slate-500 transition hover:bg-white/10 hover:text-violet-100 focus-visible:text-violet-100"
+                    className="pointer-events-auto shrink-0 rounded-full p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-violet-100 focus-visible:text-violet-100"
                   >
                     <PencilIcon className={expanded ? 'h-4 w-4' : 'h-3.5 w-3.5'} aria-hidden="true" />
                   </button>
@@ -263,7 +298,7 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
             {expanded ? (
               <button
                 type="button"
-                onClick={() => onToggle(scan.id)}
+                onClick={close}
                 aria-label="Close map"
                 className="pointer-events-auto -mr-1.5 -mt-1.5 shrink-0 rounded-full border border-violet-300/20 bg-slate-950/60 p-2 text-slate-300 transition hover:bg-white/10 hover:text-white"
               >
@@ -273,7 +308,7 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
               <time
                 dateTime={scan.scannedAt.toISOString()}
                 title={`Scanned ${formatFull(scan.scannedAt)}`}
-                className="shrink-0 pt-0.5 text-xs text-slate-500"
+                className="shrink-0 pt-0.5 text-xs text-slate-400"
               >
                 {timeAgo(scan.scannedAt, now)}
               </time>
@@ -288,7 +323,7 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
             </span>
             <SourceLabel source={scan.source} />
             {expanded ? (
-              <time dateTime={scan.scannedAt.toISOString()} className="text-xs text-slate-500">
+              <time dateTime={scan.scannedAt.toISOString()} className="text-xs text-slate-400">
                 Scanned {formatFull(scan.scannedAt)}
               </time>
             ) : null}
@@ -298,10 +333,19 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
             <span className="ml-auto flex items-center gap-1">
               {confirming ? (
                 <>
-                  <span className="mr-1 text-xs text-red-100/80">Delete this reading?</span>
+                  <span id={`delete-q-${scan.id}`} className="mr-1 text-xs text-red-100/80">
+                    Delete this reading?
+                  </span>
+                  {/* Focus lands on the safe choice, and both answers carry
+                      the question so it is heard with them. */}
                   <button
                     type="button"
-                    onClick={() => setConfirming(false)}
+                    autoFocus
+                    aria-describedby={`delete-q-${scan.id}`}
+                    onClick={() => {
+                      refocusRef.current = 'delete'
+                      setConfirming(false)
+                    }}
                     disabled={deleting}
                     className="pointer-events-auto rounded-full px-3 py-1 text-xs text-slate-300 transition hover:bg-white/10"
                   >
@@ -310,6 +354,7 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
                   <button
                     type="button"
                     onClick={remove}
+                    aria-describedby={`delete-q-${scan.id}`}
                     disabled={deleting}
                     className="pointer-events-auto rounded-full bg-red-500/80 px-3 py-1 text-xs font-medium text-white transition hover:bg-red-500 disabled:opacity-50"
                   >
@@ -318,11 +363,12 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
                 </>
               ) : (
                 <button
+                  ref={refocus('delete')}
                   type="button"
                   onClick={() => setConfirming(true)}
                   aria-label="Delete reading"
                   title="Delete"
-                  className="pointer-events-auto -my-1 -mr-1.5 rounded-full p-1.5 text-slate-500 transition hover:bg-red-500/10 hover:text-red-200"
+                  className="pointer-events-auto -my-1 -mr-1.5 rounded-full p-1.5 text-slate-400 transition hover:bg-red-500/10 hover:text-red-200"
                 >
                   <TrashIcon className="h-4 w-4" aria-hidden="true" />
                 </button>
@@ -331,7 +377,9 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
           </div>
 
           {actionError ? (
-            <p className="mt-2 text-[11px] text-red-200">{actionError}</p>
+            <p role="alert" className="mt-2 text-[11px] text-red-200">
+              {actionError}
+            </p>
           ) : scan.truncated ? (
             <p className="mt-2 text-[11px] text-amber-200/70">
               Map holds the first {MAX_MATCHES.toLocaleString()}
@@ -362,7 +410,7 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
               ) : (
                 <div className="flex aspect-square items-center justify-center p-6 text-center">
                   {map.kind === 'failed' ? (
-                    <div className="grid justify-items-center gap-3">
+                    <div role="alert" className="grid justify-items-center gap-3">
                       <p className="text-sm text-red-100/90">{map.message}</p>
                       <button
                         type="button"
@@ -373,7 +421,10 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
                       </button>
                     </div>
                   ) : (
-                    <PortalLoader />
+                    <div role="status">
+                      <PortalLoader />
+                      <span className="sr-only">Loading the map…</span>
+                    </div>
                   )}
                 </div>
               )}

@@ -17,12 +17,15 @@ accounts API handles Google sign-in and scans the user chooses to save. Single-u
   Neon Postgres, deployed to Google Cloud Run from its `Dockerfile`
   (`backend/deploy.sh`). Google sign-in,
   sessions, saved scans, account deletion. See `backend/README.md`. (Not the old Python
-  scanner — that oracle was removed in `25a0c22`; recover it from git history.)
+  scanner — that oracle was removed in `425b514`; recover it from git history.)
 - `infra/` — Google Cloud cost guards for the API: the billing kill switch
   (`billing-killswitch/`, a Cloud Function that unlinks billing at $1) and the
   image cleanup policy. See "Cost guards" in `backend/README.md`.
 - `testing/` — sample save zips for manual checks (`test1.zip` ~1.4 MB,
-  `test2.zip` ~1.18 GB).
+  `test2.zip` ~1.18 GB). Untracked: present locally, not in git.
+- `accessibility.md` — the WCAG 2.2 AA status: what the UI does, the contrast
+  figures it relies on, and the known gaps (chiefly the canvas map). Update it
+  when a change touches focus, announcements, colour or the map's keyboard path.
 
 The root `justfile` is a thin task runner over the commands below (`just` lists
 them; `just frontend`, `just backend`, `just dev` for both). It wraps, never
@@ -40,7 +43,7 @@ replaces, the per-package scripts. The frontend build drives the scanner build.
 | Frontend lint | `cd frontend && npm run lint` |
 | Refresh block list | `cd frontend && npm run update:blocks [-- <version>]` |
 | Frontend unit tests | `cd frontend && npm test` (Vitest; `npm run test:watch`) |
-| Frontend e2e | `cd frontend && npm run build && npm run test:e2e` (Playwright; `npx playwright install chromium` once) |
+| Frontend e2e | `cd frontend && npm run build && npm run test:e2e` (Playwright; `npx playwright install chromium` once). Build with accounts off: a `.env.local` setting `VITE_API_URL` fails the no-sign-in and no-network specs, so blank it (`VITE_API_URL= VITE_GOOGLE_CLIENT_ID= npm run build`) |
 | Scanner tests | `cd scanner && cargo test` (CI also runs `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`) |
 | Backend tests | `cd backend && uv run pytest` (set `TEST_DATABASE_URL` to also check migrations on Postgres) |
 | Backend dev server | `cd backend && uv run uvicorn app.main:app --reload` (needs `.env`, see `.env.example`) |
@@ -73,7 +76,8 @@ and backend (pytest, with migrations also applied to a Postgres service).
   the bound still holds.
 - **e2e** (`frontend/e2e/`) scans the synthetic world as a zip *and* a folder
   in every dimension and asserts identical, exact counts — the automated form
-  of the zip/folder check below — plus every static page and the 404.
+  of the zip/folder check below — plus every static page, the 404, and the
+  map's keyboard path (step to a pin with N, copy it with Enter).
 - **`scanner/tests/robustness.rs`** is the "nothing may panic" check:
   truncations, seeded byte corruption and hostile length fields. Seeded and
   deterministic; raise `ROUNDS` locally for a longer soak.
@@ -89,7 +93,7 @@ out one dimension's region files → a pool of wasm workers scans them →
 coordinates go on a canvas. No network.
 
 ### Scanner (`scanner/`)
-Port of the old Python scanner (removed in `25a0c22`), compiled to `wasm32-unknown-unknown` via `wasm-pack`.
+Port of the old Python scanner (removed in `425b514`), compiled to `wasm32-unknown-unknown` via `wasm-pack`.
 `src/nbt.rs` ← `fastnbt.py`, `src/region.rs` ← `parser.py`, `src/lib.rs` is the
 `wasm_bindgen` surface (`scanRegion`, `ExternalChunks`, `ScanResult`), and
 `src/bin/oracle.rs` is the native CLI used to diff against Python. Full detail,
@@ -142,7 +146,7 @@ isn't markup; nothing under `components/` reaches back up into a page.
   controlled by the page; the only state any of them keeps is `ScanSummary`'s
   transient "Copied".
 - `components/layout/` — `AmbientBackground` (the `bg-blobs` markup, shared by
-  all three pages), `Divider`, `SiteFooter`.
+  every page), `Divider`, `SiteFooter`, `Prose`.
 - `workers/source.ts` — where a save's bytes come from, and the only place the
   two input forms differ. Flattens both to `SaveEntry[]` (`name` + `readRaw()`),
   so nothing downstream knows which it got. A loose `.mca` is modelled as a
@@ -167,21 +171,28 @@ isn't markup; nothing under `components/` reaches back up into a page.
 - `components/worldmap/` — the single-canvas map (X/Z plane), split so the
   canvas maths stands apart from the React wiring:
   - `WorldMap.tsx` — the component. Refs, hover/zoom state, the pointer and
-    wheel handlers, and the `requestAnimationFrame` scheduling. Clicking a pin
-    (a press that travelled < `CLICK_SLOP` px) copies its `x y z`.
+    wheel handlers, the keyboard handler, and the `requestAnimationFrame`
+    scheduling. Clicking a pin (a press that travelled < `CLICK_SLOP` px)
+    copies its `x y z`. The canvas is focusable (`role="application"`): keys
+    drive a centre crosshair that stands in for the pointer — arrows pan,
+    `+`/`-` zoom, `0` fits, `N`/`P` step through `pinsRef` in order, Enter
+    copies — and two always-mounted `sr-only` status regions speak each move
+    and each copy. The tooltip and HUD are `aria-hidden` because of that.
   - `view.ts` — `View`, the `projection()` world↔screen pair that every hit
     test and every draw goes through, `fitView()`, `niceStep()`, the zoom clamp.
   - `render.ts` — `drawMap()`, the only code that touches the canvas. It reads
     its whole world from the `Scene` argument and never touches React state.
   - `columns.ts` — `columnAt()`, the hit test that resolves a screen point to
-    the column of matches sharing one X/Z, plus `sameColumn()`/`columnCoords()`.
+    the column of matches sharing one X/Z, plus `sameColumn()`/`columnCoords()`
+    and `describeColumn()` (a column in words, for the announcements).
   - `useInertia.ts` (release glide), `useCopyToast.ts` (click-to-copy and its
     confirmation), `clipboard.ts` (async clipboard, textarea fallback).
-  - `MapTooltip.tsx`, `MapHud.tsx` — the HTML chrome floating over the canvas.
+  - `MapTooltip.tsx`, `MapHud.tsx` — the HTML chrome floating over the canvas
+    (zoom/Fit, readout, copy toast, and the keyboard crosshair and key hint).
 - `pages/docs/Docs.tsx` + `docs-main.tsx` — the `/docs` page: logo, wordmark,
   and the prose from `content/docs.md`, imported `?raw` and rendered by
   `react-markdown` through an explicit element map (no typography plugin). It is
-  a **second static entry point**, not a route: `frontend/docs/index.html` is
+  a **static entry point of its own**, not a route: `frontend/docs/index.html` is
   listed in `build.rollupOptions.input`, so it builds to `dist/docs/index.html`
   and Pages serves it on a cold load.
   Note `Docs.tsx` and `docs-main.tsx` must not collide case-insensitively on
@@ -192,8 +203,8 @@ isn't markup; nothing under `components/` reaches back up into a page.
   `components/layout/Prose.tsx` (also used by docs). Google's OAuth consent
   screen links both, so their URLs must not move, and **the privacy policy
   must be updated whenever what the API stores changes.**
-- `pages/notfound/NotFound.tsx` + `not-found-main.tsx` — the third static entry
-  point, mounted from `frontend/404.html`. It builds to `dist/404.html` at the
+- `pages/notfound/NotFound.tsx` + `not-found-main.tsx` — the static entry
+  point mounted from `frontend/404.html`. It builds to `dist/404.html` at the
   site root, which is where Pages looks for the page to serve on an unknown
   path. Static like the other two: there is no client-side router to catch the
   miss. Vite's dev and preview servers would fall back to `index.html` for a
@@ -207,7 +218,8 @@ isn't markup; nothing under `components/` reaches back up into a page.
   in `build.rollupOptions.input` like docs): the account's saved scans, newest
   *scan* first, grouped by day. Cards are `components/scans/`: pressing one
   expands it in place into the same `WorldMap` the index page draws (one open
-  at a time — the page owns `openId`; Escape or × closes). The card fetches the
+  at a time — the page owns `openId`; Escape or × closes, and the card's own
+  Escape listener puts focus back on its header button). The card fetches the
   coordinates on open and drops them once the close animation ends, so only one
   scan's matches are ever resident. Cards also rename (inline) and delete.
   `lib/savedScans.ts` is the API client; `lib/coordsCodec.ts` packs the
@@ -221,7 +233,7 @@ isn't markup; nothing under `components/` reaches back up into a page.
   pill with GIS's real button laid over it at zero opacity, because GIS only
   issues a token from a click inside its own iframe. `AccountMenu.tsx` (mounted
   top-right on the index and scans pages) and `SignInDialog.tsx` (opened by a
-  signed-out Save) both use it, and follow the token via `subscribeToken` so
+  signed-out "Keep this reading") both use it, and follow the token via `subscribeToken` so
   either can start the session.
 - **Content-Security-Policy.** `contentSecurityPolicy()` in `vite.config.ts`
   stamps a CSP `<meta>` into every built page (Pages cannot send headers; the
@@ -230,7 +242,8 @@ isn't markup; nothing under `components/` reaches back up into a page.
   iframe) must be added there, or it is blocked. e2e specs import `test` from
   `e2e/test.ts`, which fails any test that logs a CSP violation.
 - `assets/PortalLoader.tsx`, `index.css` (Tailwind v4 + ambient background
-  animation).
+  animation, and the site-wide `:focus-visible` outline — in `@layer base` on
+  purpose, so any utility such as `outline-none` still outranks it).
 - `assets/icons/*.svg` — icons live here as standalone files, imported as
   components via `vite-plugin-svgr` (`import Icon from './assets/icons/x.svg?react'`).
   They keep `currentColor`/`stroke="currentColor"` so colour and sizing stay with
@@ -273,7 +286,7 @@ isn't markup; nothing under `components/` reaches back up into a page.
    coordinates. That shape is the contract; the scan result around it
    (`{ blockType, dimension, count, truncated, matches }`) is just local state.
 6. **The Rust scanner was verified byte-identical to the Python oracle**, which
-   has since been removed from the tree (`25a0c22`; `scanner/README.md` still
+   has since been removed from the tree (`425b514`; `scanner/README.md` still
    describes the cross-check). A change to `scanner/src/nbt.rs` or
    `src/region.rs` should be re-checked against it from git history — same
    count, same match list, same order. Today's `backend/` is unrelated.
@@ -287,7 +300,7 @@ isn't markup; nothing under `components/` reaches back up into a page.
    `VITE_GOOGLE_CLIENT_ID` unset, `accountsEnabled` is false and `AccountMenu`
    renders nothing; the app must stay fully usable signed out and with the API
    down. No save bytes or paths ever go to the API. The one exception is
-   opt-in: pressing Save sends that *result* — block, dimension, the save's
+   opt-in: pressing "Keep this reading" sends that *result* — block, dimension, the save's
    name, counts and the packed coordinates — and nothing else. Sessions are
    opaque bearer tokens in `localStorage` (hash stored server-side), not
    cookies: Pages and Cloud Run are different sites, so a cookie would be

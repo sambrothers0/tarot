@@ -17,7 +17,7 @@ export function SiteFooter() {
       </p>
 
       <p className="mx-auto mt-4 max-w-2xl text-center text-sm text-slate-400 sm:text-base">
-        {/* The docs are a second static entry point, not a route, so this is a
+        {/* The docs are a static entry point of their own, not a route, so this is a
             plain same-tab navigation. BASE_URL keeps it right in dev (`/`) and
             under the Pages subpath (`/tarot/`). */}
         <a
@@ -64,7 +64,7 @@ export function SiteFooter() {
         </a>
       </div>
 
-      <p className="mx-auto mt-4 max-w-2xl text-center text-xs text-slate-600">
+      <p className="mx-auto mt-4 max-w-2xl text-center text-xs text-slate-400">
         Tarot is pronounced "TARE-oh"
       </p>
     </footer>

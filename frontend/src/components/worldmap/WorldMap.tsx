@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { columnAt, columnPositions, sameColumn } from './columns'
-import { CoordinateReadout, CopyToast, ZoomControls } from './MapHud'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { columnAt, columnPositions, describeColumn, sameColumn } from './columns'
+import { CoordinateReadout, CopyToast, Crosshair, KeyboardHint, ZoomControls } from './MapHud'
 import { MapTooltip } from './MapTooltip'
 import { drawMap } from './render'
 import type { BlockMatch, Hovered, View } from './types'
@@ -20,6 +20,11 @@ const CLICK_SLOP = 5
 // A pointer paused this long before release shouldn't fling — the stale velocity
 // from earlier in the drag isn't what the user meant.
 const STALE_RELEASE_MS = 60
+// One arrow press pans this share of the map's shorter side; Shift pans more.
+const KEY_PAN = 0.1
+const KEY_PAN_FAR = 0.5
+// One +/− press zooms by this factor.
+const KEY_ZOOM = 1.25
 
 type Drag = {
   pointerId: number
@@ -55,6 +60,14 @@ export function WorldMap({ matches }: Props) {
   const [hovered, setHovered] = useState<Hovered | null>(null)
   const [readout, setReadout] = useState<{ x: number; z: number } | null>(null)
   const [zoomPct, setZoomPct] = useState(50)
+  // Keyboard use shows a crosshair at the centre: the keyboard's stand-in for
+  // the pointer. Hover, copy and the readout all follow it.
+  const [keyboard, setKeyboard] = useState(false)
+  // What the screen reader hears after a key moves the map.
+  const [announcement, setAnnouncement] = useState('')
+  // Which column N/P last stepped to, in `pinsRef` order; -1 before the first.
+  const pinIndexRef = useRef(-1)
+  const helpId = useId()
 
   const { toast, copyColumn } = useCopyToast()
 
@@ -206,7 +219,104 @@ export function WorldMap({ matches }: Props) {
     return { px: event.clientX - rect.left, py: event.clientY - rect.top }
   }
 
+  // The keyboard path. Arrows pan, +/− zoom, 0 fits, N/P step through every
+  // column in turn, Enter copies whatever the crosshair is on, Escape drops the
+  // tooltip. Each move ends by treating the centre as the pointer.
+  const onKeyDown = (event: React.KeyboardEvent<HTMLCanvasElement>) => {
+    const view = viewRef.current
+    const size = sizeRef.current
+    if (!size.w || !size.h || event.altKey || event.ctrlKey || event.metaKey) return
+    const centre = () => columnHere(size.w / 2, size.h / 2)
+    const pins = pinsRef.current
+    const count = pins.length / 2
+    const pan = ((event.shiftKey ? KEY_PAN_FAR : KEY_PAN) * Math.min(size.w, size.h)) / view.ppb
+    const zoom = (factor: number) => {
+      view.ppb = clamp(view.ppb * factor, MIN_PPB, MAX_PPB)
+      return `Zoom ${Math.round(view.ppb * 100)}%`
+    }
+    let message: string | null = null
+
+    switch (event.key) {
+      case 'ArrowLeft':
+        view.cx -= pan
+        break
+      case 'ArrowRight':
+        view.cx += pan
+        break
+      case 'ArrowUp':
+        view.cz -= pan
+        break
+      case 'ArrowDown':
+        view.cz += pan
+        break
+      case '+':
+      case '=':
+        message = zoom(KEY_ZOOM)
+        break
+      case '-':
+      case '_':
+        message = zoom(1 / KEY_ZOOM)
+        break
+      case '0':
+        fit()
+        message = `Showing all ${count.toLocaleString()} ${count === 1 ? 'location' : 'locations'}`
+        break
+      case 'n':
+      case 'N':
+      case 'p':
+      case 'P': {
+        if (count === 0) return
+        const forward = event.key.toLowerCase() === 'n'
+        const prev = pinIndexRef.current
+        const i = prev < 0 ? (forward ? 0 : count - 1) : (prev + (forward ? 1 : -1) + count) % count
+        pinIndexRef.current = i
+        view.cx = pins[i * 2]
+        view.cz = pins[i * 2 + 1]
+        break
+      }
+      case 'Enter':
+      case ' ': {
+        event.preventDefault()
+        setKeyboard(true)
+        const column = centre()
+        if (column) copyColumn(column)
+        else setAnnouncement('Nothing under the crosshair to copy')
+        return
+      }
+      case 'Escape':
+        // Only swallow Escape when there is a tooltip to dismiss; otherwise
+        // it belongs to whatever holds the map (a saved scan's card closes).
+        if (hoveredRef.current) {
+          event.stopPropagation()
+          applyHover(null)
+        }
+        return
+      default:
+        return
+    }
+
+    event.preventDefault()
+    stopInertia()
+    setKeyboard(true)
+    setZoomPct(Math.round(view.ppb * 100))
+    setReadout({ x: Math.round(view.cx), z: Math.round(view.cz) })
+    const before = hoveredRef.current
+    const column = centre()
+    applyHover(column)
+    scheduleDraw()
+
+    if (event.key.toLowerCase() === 'n' || event.key.toLowerCase() === 'p') {
+      if (column) {
+        message = `Location ${(pinIndexRef.current + 1).toLocaleString()} of ${count.toLocaleString()}: ${describeColumn(column)}`
+      }
+    } else if (message == null && column && !sameColumn(before, column)) {
+      message = describeColumn(column)
+    }
+    if (message != null) setAnnouncement(message)
+  }
+
   const onPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    setKeyboard(false)
     event.currentTarget.setPointerCapture(event.pointerId)
     stopInertia() // grabbing again catches any ongoing glide
     dragRef.current = {
@@ -276,6 +386,8 @@ export function WorldMap({ matches }: Props) {
   }
 
   const onPointerLeave = () => {
+    // The crosshair, not the pointer, owns hover while the keyboard drives.
+    if (keyboard) return
     setReadout(null)
     applyHover(null)
   }
@@ -285,11 +397,22 @@ export function WorldMap({ matches }: Props) {
       ref={containerRef}
       className="relative aspect-square w-full select-none overflow-hidden"
     >
+      {/* `application` so a screen reader hands the keys to the map instead of
+          reading-mode navigation (N and P would otherwise be eaten). The
+          outline is inset because the container clips anything outside it. */}
       <canvas
         ref={canvasRef}
-        className={`absolute inset-0 h-full w-full touch-none active:cursor-grabbing ${
+        tabIndex={0}
+        role="application"
+        aria-roledescription="map"
+        aria-label={`Map of ${matches.length.toLocaleString()} ${matches.length === 1 ? 'match' : 'matches'}`}
+        aria-describedby={helpId}
+        className={`absolute inset-0 h-full w-full touch-none [outline-offset:-2px] active:cursor-grabbing ${
           hovered ? 'cursor-pointer' : 'cursor-grab'
         }`}
+        onKeyDown={onKeyDown}
+        onFocus={(event) => setKeyboard(event.currentTarget.matches(':focus-visible'))}
+        onBlur={() => setKeyboard(false)}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -304,9 +427,25 @@ export function WorldMap({ matches }: Props) {
           scheduleDraw()
         }}
       />
+      {keyboard ? <Crosshair /> : null}
+      {keyboard ? <KeyboardHint /> : null}
       {readout ? <CoordinateReadout x={readout.x} z={readout.z} /> : null}
-      {hovered ? <MapTooltip hovered={hovered} /> : null}
+      {hovered ? <MapTooltip hovered={hovered} keyboard={keyboard} /> : null}
       {toast ? <CopyToast toast={toast} /> : null}
+
+      {/* Screen-reader side. The help is what the canvas is described by; the
+          two status regions stay mounted so a change in them is announced. */}
+      <p id={helpId} className="sr-only">
+        Arrow keys pan, plus and minus zoom, 0 fits every match. N and P step to the next and
+        previous location. Enter copies the lowest block of the location under the crosshair.
+        For the full list, use Copy coordinates as JSON.
+      </p>
+      <p role="status" className="sr-only">
+        {announcement}
+      </p>
+      <p role="status" className="sr-only">
+        {toast?.text ?? ''}
+      </p>
     </div>
   )
 }

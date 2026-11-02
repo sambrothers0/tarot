@@ -2,7 +2,7 @@
 
 Optional FastAPI service behind Tarot's "Sign in with Google". It knows who you
 are and the scans you chose to save: **no save file or path is ever sent here**,
-and a scan result only when you press Save. The frontend works fully without it.
+and a scan result only when you press "Keep this reading". The frontend works fully without it.
 
 Stack: FastAPI · SQLAlchemy 2 (sync, psycopg 3) · Alembic · Neon Postgres ·
 hosted on Google Cloud Run (free tier, scales to zero).
@@ -109,7 +109,7 @@ here stays inside the free tier under normal use; these limits bound abuse.
 |---|---|---|
 | One small instance, scale to zero, request-time billing, 30 s timeout | `deploy.sh` | Worst case is one 256 MiB instance busy all month |
 | At most 10 sessions per user | `MAX_SESSIONS_PER_USER`, `routes/auth.py` | Rows one Google account can create by replaying sign-ins |
-| Saved scans: 100 per user, 2 MB each, 20 MB per user, 300 MB in total | `MAX_SCAN*` in `config.py`, `routes/scans.py` | Neon's 0.5 GB storage, however many accounts sign up. Over a limit, Save answers 507 with a reason |
+| Saved scans: 100 per user, 2 MB each, 20 MB per user, 300 MB in total | `MAX_SCAN*` in `config.py`, `routes/scans.py` | Neon's 0.5 GB storage, however many accounts sign up. Over a limit, keeping a reading answers 507 with a reason |
 | Coordinates packed in the browser; blobs cached `immutable` | `lib/coordsCodec.ts`, `routes/scans.py` | Egress (1 GB/month free): a 100k-match scan is tens of KB, and reopening a map is a cache hit |
 | Request bodies capped at 3 MB (413), chunked bodies without a length refused (411) | `MAX_BODY_BYTES`, `limits.py` | Memory on the 256 MiB instance: nothing oversized is ever read or parsed |
 | 120 requests a minute per user; 20 sign-ins a minute in total (429 + `Retry-After`) | `REQUESTS_PER_MINUTE_PER_USER`, `SIGN_INS_PER_MINUTE`, `limits.py` | One account (or a sign-in flood) hogging the single instance and Neon's compute hours |

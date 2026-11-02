@@ -72,3 +72,13 @@ export function sameColumn(a: Hovered | null, b: Hovered | null): boolean {
 // stand in; the top is head height.
 export const columnCoords = (column: Hovered) =>
   `${column.x} ${column.ys[column.ys.length - 1]} ${column.z}`
+
+// A column read out in words, for the screen-reader announcements the keyboard
+// drives. Heights run low to high, the way a player climbs them.
+export function describeColumn(column: Hovered): string {
+  const n = column.ys.length
+  const low = column.ys[n - 1]
+  const high = column.ys[0]
+  const y = n === 1 ? `Y ${low}` : `Y ${low} to ${high}`
+  return `X ${column.x}, Z ${column.z}, ${y}, ${n} ${n === 1 ? 'block' : 'blocks'}`
+}

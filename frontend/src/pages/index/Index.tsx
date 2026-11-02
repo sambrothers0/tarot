@@ -136,97 +136,106 @@ function App() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-x-hidden bg-[#06040d] text-white">
+    <div className="relative min-h-screen overflow-x-hidden bg-[#06040d] text-white">
       <AmbientBackground />
 
       <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
         <AccountMenu />
       </div>
 
-      <div className="relative z-10 mx-auto flex w-full max-w-2xl flex-col items-center px-6 pt-14 text-center sm:pt-20">
-        <div className="w-full">
-          {workspace ? (
-            // Folded hero: the wordmark alone, sitting on the form like a
-            // title bar. The headline stays in the document for screen readers.
-            <>
-              <p className="mb-6 text-2xl uppercase tracking-[0.6em] text-violet-200/70">
-                TAROT
-              </p>
-              <h1 className="sr-only">Instantly plot any block type in your Minecraft world</h1>
-            </>
-          ) : (
-            <>
-              {/* Tighter size/tracking on phones so the wide letter-spacing doesn't
-                  overflow the viewport; full drama from sm up. The negative right
-                  margin cancels the trailing letter-space after the final T, which
-                  would otherwise throw the centring off by half the tracking. */}
-              <p className="mb-10 -mr-[0.4em] inline-block text-4xl uppercase tracking-[0.4em] text-violet-200/70 sm:mb-14 sm:-mr-[1em] sm:text-6xl sm:tracking-[1em]">
-                TAROT
-              </p>
-              <h1 className="text-2xl font-semibold tracking-tight text-balance text-white sm:text-5xl lg:text-4xl">
-                Instantly plot any block type in your Minecraft world
-              </h1>
-              <p className="mx-auto mt-4 max-w-xl text-sm leading-7 text-slate-300 sm:text-base">
-                Locate forgotten nether portals, builds, or previously explored areas
-              </p>
-            </>
-          )}
+      {/* The footer sits outside <main> so it stays its own landmark. */}
+      <main>
+        <div className="relative z-10 mx-auto flex w-full max-w-2xl flex-col items-center px-6 pt-14 text-center sm:pt-20">
+          <div className="w-full">
+            {workspace ? (
+              // Folded hero: the wordmark alone, sitting on the form like a
+              // title bar. The headline stays in the document for screen readers.
+              <>
+                <p className="mb-6 text-2xl uppercase tracking-[0.6em] text-violet-200/70">
+                  TAROT
+                </p>
+                <h1 className="sr-only">Instantly plot any block type in your Minecraft world</h1>
+              </>
+            ) : (
+              <>
+                {/* Tighter size/tracking on phones so the wide letter-spacing doesn't
+                    overflow the viewport; full drama from sm up. The negative right
+                    margin cancels the trailing letter-space after the final T, which
+                    would otherwise throw the centring off by half the tracking. */}
+                <p className="mb-10 -mr-[0.4em] inline-block text-4xl uppercase tracking-[0.4em] text-violet-200/70 sm:mb-14 sm:-mr-[1em] sm:text-6xl sm:tracking-[1em]">
+                  TAROT
+                </p>
+                <h1 className="text-2xl font-semibold tracking-tight text-balance text-white sm:text-5xl lg:text-4xl">
+                  Instantly plot any block type in your Minecraft world
+                </h1>
+                <p className="mx-auto mt-4 max-w-xl text-sm leading-7 text-slate-300 sm:text-base">
+                  Locate forgotten nether portals, builds, or previously explored areas
+                </p>
+              </>
+            )}
 
-          <section
-            className={`w-full rounded-[2rem] border border-violet-300/20 bg-slate-950/60 p-6 text-center shadow-2xl shadow-black/30 backdrop-blur-xl sm:p-8 ${
-              workspace ? '' : 'mt-10'
-            }`}
-          >
-            <ScanForm
-              sourceKind={sourceKind}
-              onSourceKind={(kind) => {
-                setSourceKind(kind)
-                setSelectedSave(null)
-                setError(null)
-              }}
-              onSave={(save) => {
-                setError(null)
-                setSelectedSave(save)
-              }}
-              blockType={blockType}
-              onBlockType={setBlockType}
-              dimension={dimension}
-              onDimension={setDimension}
-              phase={phase}
-              usingSample={usingSample}
-              onSubmit={handleSubmit}
-            />
-
-            <ScanProgress
-              phase={phase}
-              dimension={dimension}
-              done={regionsDone}
-              total={regionsTotal}
-            />
-
-            {error ? (
-              <div className="mt-5 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-                <p>{error}</p>
-              </div>
-            ) : null}
-
-            {result ? (
-              <ScanSummary
-                result={result}
-                onError={setError}
-                save={accountsEnabled ? { state: saveState, onSave: handleSave } : undefined}
-                onShowMap={() => reveal(mapRef.current, { focus: true })}
+            <section
+              className={`w-full rounded-[2rem] border border-violet-300/20 bg-slate-950/60 p-6 text-center shadow-2xl shadow-black/30 backdrop-blur-xl sm:p-8 ${
+                workspace ? '' : 'mt-10'
+              }`}
+            >
+              <ScanForm
+                sourceKind={sourceKind}
+                onSourceKind={(kind) => {
+                  setSourceKind(kind)
+                  setSelectedSave(null)
+                  setError(null)
+                }}
+                onSave={(save) => {
+                  setError(null)
+                  setSelectedSave(save)
+                }}
+                blockType={blockType}
+                onBlockType={setBlockType}
+                dimension={dimension}
+                onDimension={setDimension}
+                phase={phase}
+                usingSample={usingSample}
+                onSubmit={handleSubmit}
               />
-            ) : null}
-          </section>
+
+              <ScanProgress
+                phase={phase}
+                dimension={dimension}
+                done={regionsDone}
+                total={regionsTotal}
+              />
+
+              {/* Spoken as the scan moves through its phases; the bars and the
+                  summary are what sighted users read instead. */}
+              <p role="status" className="sr-only">
+                {statusMessage(phase, dimension, result)}
+              </p>
+
+              {error ? (
+                <div role="alert" className="mt-5 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                  <p>{error}</p>
+                </div>
+              ) : null}
+
+              {result ? (
+                <ScanSummary
+                  result={result}
+                  onError={setError}
+                  save={accountsEnabled ? { state: saveState, onSave: handleSave } : undefined}
+                  onShowMap={() => reveal(mapRef.current, { focus: true })}
+                />
+              ) : null}
+            </section>
+          </div>
+
         </div>
 
-      </div>
-
-      <Divider className="relative z-10 mx-auto mt-16 max-w-2xl" />
-      <div className="mt-12 px-6">
-        <MapPanel ref={mapRef} matches={result?.matches ?? null} busy={busy} />
-      </div>
+        <Divider className="relative z-10 mx-auto mt-16 max-w-2xl" />
+        <div className="mt-12 px-6">
+          <MapPanel ref={mapRef} matches={result?.matches ?? null} busy={busy} />
+        </div>
+      </main>
 
       <Divider className="relative z-10 mx-auto mt-16 max-w-2xl" />
 
@@ -242,8 +251,19 @@ function App() {
           }}
         />
       ) : null}
-    </main>
+    </div>
   )
+}
+
+// What the status region says. Only phase changes speak, not every tick of the
+// bar, so a long scan doesn't talk over the reader. Deliberately not worded like
+// the visible summary: the result line is the place to read the detail.
+function statusMessage(phase: Phase, dimension: Dimension, result: ScanResult | null): string {
+  if (phase === 'opening') return 'Opening save…'
+  if (phase === 'scanning') return `Scanning the ${dimensionLabel(dimension)}…`
+  if (result == null) return ''
+  const n = result.count
+  return `Scan finished: ${n.toLocaleString()} ${n === 1 ? 'match' : 'matches'}.`
 }
 
 export default App

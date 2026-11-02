@@ -10,7 +10,7 @@ No world on hand? Until you pick a save, the scanner has a small sample world se
 
 When you play one specific Minecraft world for 5 years straight, you wind up building a lot of nether portals. After spending a couple hours searching for the location of a previously built, but since-forgotten portal, most players will learn to simply write down the coordinates of each one. This was the system I used for most of my survival world's lifetime. However, the solution isn't good enough. Writing a manual document that you have to constantly update, verify, and backup is extremely error prone and brittle. I needed something better.
 
-Tarot exists to solve this problem by scanning a save for portal blocks (or any other block you specify) and plotting those locations on the fly in an interactive grid, inspired by the [Chunkbase](www.chunkbase.com) UI.
+Tarot exists to solve this problem by scanning a save for portal blocks (or any other block you specify) and plotting those locations on the fly in an interactive grid, inspired by the [Chunkbase](https://www.chunkbase.com) UI.
 
 ## How it works
 
@@ -18,10 +18,11 @@ Tarot exists to solve this problem by scanning a save for portal blocks (or any 
 tab. There is no server in the request and no additional copy of your world
 saved anywhere.
 
-Signing in with Google is optional. If you do, the only things stored are your
-Google account ID, email, name and profile picture, so you can be recognised
-next time. Your save is never sent, signed in or not, and "Delete account"
-removes everything.
+Signing in with Google is optional. If you do, Tarot stores your Google account
+ID, email, name and profile picture, so you can be recognised next time, plus
+any readings you choose to keep: a scan's block, dimension, save name and the
+coordinates it found. Your save itself is never sent, signed in or not, and
+"Delete account" removes everything.
 
 This means that your own machine is performing the computation with no waiting around for a large file upload. It also means the website's performance is dependent on the specs of your computer, likely a benefit to most technical players.
 
@@ -55,7 +56,7 @@ short list of names.
 **4. The results are drawn.** Coordinates come back as a flat run of numbers and
 land on a canvas on Minecraft's X/Z plane, with a chunk-aligned grid. Drag to
 pan, scroll to zoom, hover to read a coordinate pin, and click to copy
-it to the clipboard.
+it to the clipboard. The map works from the keyboard too: see below.
 
 ## Notes and limits
 
@@ -75,6 +76,13 @@ skips that step entirely and works on older browsers.
 **Close the world first.** Minecraft rewrites region files while you play, so
 scanning a folder belonging to an open world can fail partway through. Quit to
 the title screen and scan again. Scanning a zip is never affected.
+
+**Keyboard and screen readers.** Every control works from the keyboard. Tab to
+the map and a crosshair appears: arrow keys pan (Shift for bigger steps), `+`
+and `-` zoom, `0` fits every match, `N` and `P` jump to the next and previous
+location, and `Enter` copies the one under the crosshair. Screen readers hear
+each location as you step to it. The map itself is a picture, so for the full
+list use **Copy coordinates as JSON**.
 
 **Java Edition saves only.** Bedrock stores its world in an entirely different
 format and is not supported.

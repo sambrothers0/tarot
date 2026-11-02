@@ -1,7 +1,7 @@
 import { AmbientBackground } from '../../components/layout/AmbientBackground'
 
-// The page GitHub Pages serves for any path that isn't `/` or `/docs/`. It is a
-// third static entry point (`404.html` at the site root) rather than a route —
+// The page GitHub Pages serves for any path no built file backs. It is a static
+// entry point of its own (`404.html` at the site root) rather than a route —
 // there is no client-side router to catch the miss.
 export function NotFound() {
   return (

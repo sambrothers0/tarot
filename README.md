@@ -7,7 +7,8 @@ coordinates are plotted on an interactive map.
 
 **The scan runs entirely in your browser.** Your save is never uploaded and the
 app itself is static files. An optional accounts API (`backend/`) handles Google
-sign-in; it never sees a save, and the app works fully without it.
+sign-in and keeps the scan results you choose to save ("readings"); it never
+sees a save, and the app works fully without it.
 
 Live at <https://sambrothers0.github.io/tarot/>.
 
@@ -17,11 +18,13 @@ Live at <https://sambrothers0.github.io/tarot/>.
 |---|---|
 | `scanner/` | Rust crate compiled to WebAssembly. Reads region files, walks chunk NBT, finds the blocks. This is the engine. |
 | `frontend/` | React 19 + TypeScript + Vite UI. Opens the save, drives a pool of wasm workers, draws the map. |
-| `backend/` | Optional FastAPI accounts API (Google sign-in, sessions). Hosted on Google Cloud Run with Neon Postgres. See [`backend/README.md`](backend/README.md). |
+| `backend/` | Optional FastAPI accounts API (Google sign-in, sessions, kept readings). Hosted on Google Cloud Run with Neon Postgres. See [`backend/README.md`](backend/README.md). |
+| `infra/` | Google Cloud cost guards for the API: the $1 billing kill switch and the image cleanup policy. See "Cost guards" in [`backend/README.md`](backend/README.md). |
 | `testing/` | (Untracked) Sample save data for manual verification. |
 
 Agent-facing architecture notes and invariants live in
-[`CLAUDE.md`](CLAUDE.md).
+[`CLAUDE.md`](CLAUDE.md). Accessibility status (WCAG 2.2 AA) and its known
+gaps are in [`accessibility.md`](accessibility.md).
 
 ## Quick start
 
@@ -42,7 +45,11 @@ npm run dev            # http://localhost:5173
 least once before `npm run dev`, `npm run build`, or `tsc` — the TypeScript
 build reads the bindings it generates.
 
-## All together 
+The root [`justfile`](justfile) wraps these: `just` lists the recipes,
+`just dev` runs the frontend and the accounts API together, `just test` runs
+every test suite.
+
+## All together
 
 1. **Pick a save + dimension.** Either a `.zip` or the world folder itself; it
    is handed to a coordinator web worker by reference, and nothing is read on
@@ -57,9 +64,10 @@ build reads the bindings it generates.
    files stream out to a pool of workers, each with its own WebAssembly
    instance, a few at a time. Every `.mca` is independent, so this parallelises
    across cores cleanly. Progress is a real regions-done/total bar.
-4. **Map** (`frontend/src/WorldMap.tsx`). Matches are plotted on a single canvas
-   on Minecraft's X/Z plane — chunk-aligned grid, drag-to-pan, wheel/pinch zoom,
-   auto-fit, hover-for-coordinates.
+4. **Map** (`frontend/src/components/worldmap/`). Matches are plotted on a
+   single canvas on Minecraft's X/Z plane — chunk-aligned grid, drag-to-pan,
+   wheel/pinch zoom, auto-fit, hover-for-coordinates, click a pin to copy it.
+   It also works from the keyboard (arrows, `+`/`-`, `N`/`P`, `Enter`).
 
 The UI runs three phases — `idle → opening → scanning` — reflected in both the
 on-page indicators and the browser tab title.
@@ -103,6 +111,7 @@ npm run build:wasm  # rebuild the scanner
 npm run build       # build:wasm, then tsc -b, then vite build -> dist/
 npm run preview     # preview the production build locally
 npm run lint        # ESLint (strict; React Compiler is on)
+npm run typecheck   # tsc -b over the app, config and tests
 npm test            # Vitest unit tests
 npm run test:e2e    # Playwright, against a prior `npm run build`
 npm run dev         # dev server on http://localhost:5173

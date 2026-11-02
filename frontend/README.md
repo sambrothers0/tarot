@@ -2,8 +2,10 @@
 
 React 19 + TypeScript + Vite UI. Opens a Minecraft save — a zip, or the world
 folder itself — drives a pool of WebAssembly workers that scan it, and plots the
-results on an interactive map. Everything happens on the visitor's machine —
-there is no upload and no backend.
+results on an interactive map. The scan happens on the visitor's machine —
+there is no upload and no server in the scan path. The optional accounts API
+([`../backend`](../backend/README.md)) only ever sees results a signed-in user
+chooses to keep.
 
 ## Requirements
 
@@ -37,21 +39,32 @@ npm run build:wasm # rebuild the wasm scanner only
 npm run build      # build:wasm, then tsc -b, then vite build -> dist/
 npm run preview    # preview the production build locally
 npm run lint       # run ESLint
+npm run typecheck  # tsc -b: app, config and tests
+npm test           # Vitest unit tests
+npm run test:e2e   # Playwright, against a prior build
+npm run update:blocks  # refresh src/content/blocks.json from Mojang's registry
 ```
+
+`test:e2e` expects a build *without* accounts (it checks there is no sign-in
+UI and no network I/O). If you have a `.env.local` that sets `VITE_API_URL`,
+build with those variables blanked first:
+`VITE_API_URL= VITE_GOOGLE_CLIENT_ID= npm run build`.
 
 ## Deploying to GitHub Pages
 
 The app is a static bundle, redeployed automatically by
-[`.github/workflows/deploy-frontend.yml`](../.github/workflows/deploy-frontend.yml):
-on every push to `master` touching `frontend/**` or `scanner/**`, it installs
-the wasm target and `wasm-pack`, runs `cargo test`, then `npm ci && npm run
-build`, and publishes `frontend/dist`. Live URL:
+[`.github/workflows/deploy-frontend.yml`](../.github/workflows/deploy-frontend.yml)
+once [CI](../.github/workflows/ci.yml) passes for a push to `master` (every
+layer: scanner, frontend unit and e2e, backend). It installs the wasm target and
+a pinned `wasm-pack`, runs `npm ci && npm run build`, and publishes
+`frontend/dist`. Live URL:
 `https://sambrothers0.github.io/tarot/`. (Trigger it manually any time
 from the Actions tab via **Run workflow**.)
 
 **One-time setup:** Settings → Pages → Build and deployment → Source: "GitHub
-Actions". (Not the older "Deploy from a branch" mode.) That is the whole of it —
-with no backend there is no API URL, no CORS, and no mixed-content problem.
+Actions". (Not the older "Deploy from a branch" mode.) To turn on accounts, also
+set the repository variables `VITE_API_URL` and `VITE_GOOGLE_CLIENT_ID`; with
+either unset the build has no sign-in UI and needs nothing else.
 
 **The one build-time detail that makes Pages work:** a project site is served
 from a subpath (`/tarot/`), so every asset URL — including the `.wasm`
@@ -85,9 +98,10 @@ hashed asset, so no extra configuration is needed. The module is ~45 KB gzipped.
    instance. Region files are read **a few ahead of the workers, never all at
    once** — one dimension of a large save is ~1.2 GB, and buffering it would
    take the tab down. Progress is a real regions-done/total bar.
-4. **Map** (`src/WorldMap.tsx`). Matches are plotted on a single canvas on
-   Minecraft's X/Z plane — chunk-aligned grid, drag-to-pan, wheel/pinch zoom,
-   auto-fit, hover-for-coordinates.
+4. **Map** (`src/components/worldmap/`). Matches are plotted on a single canvas
+   on Minecraft's X/Z plane — chunk-aligned grid, drag-to-pan, wheel/pinch zoom,
+   auto-fit, hover-for-coordinates, click to copy, and a keyboard path (see
+   [`../accessibility.md`](../accessibility.md)).
 
 The UI runs three phases — `idle → opening → scanning` — reflected in both the
 on-page indicators and the browser tab title.
@@ -95,7 +109,7 @@ on-page indicators and the browser tab title.
 > Coordinates cross the wasm boundary as a flat `Int32Array` of `x, y, z`
 > triples, not as objects — a dense block yields hundreds of millions of
 > matches, and per-match marshalling would cost more than the scan. They become
-> `[{x, y, z}]` exactly once, in `App.tsx`.
+> `[{x, y, z}]` exactly once, in `src/lib/scanWorld.ts`.
 
 Each worker gets its own wasm instance rather than sharing one, so no
 `SharedArrayBuffer` and no cross-origin isolation is needed — which matters,
@@ -104,7 +118,7 @@ because GitHub Pages cannot set the COOP/COEP headers that would require.
 ## Notable toolchain
 
 Uses the React Compiler (`babel-plugin-react-compiler`) with strict
-`eslint-plugin-react-hooks` v7. Practical consequence in `WorldMap.tsx`: **no
+`eslint-plugin-react-hooks` v7. Practical consequence in `src/components/worldmap/`: **no
 `setState` inside effect bodies** — keep state updates in event / `requestAnimationFrame`
 / `ResizeObserver` callbacks, and read live view/hover state from refs during
 the canvas draw.

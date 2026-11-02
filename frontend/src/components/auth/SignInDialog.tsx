@@ -76,7 +76,7 @@ export function SignInDialog({ open, onClose, onSignedIn }: Props) {
           <div className="mt-6">
             <GoogleSignInButton onCredential={handleCredential} onError={setError} busy={busy} />
           </div>
-          {error ? <p className="mt-3 text-xs text-red-200">{error}</p> : null}
+          {error ? <p role="alert" className="mt-3 text-xs text-red-200">{error}</p> : null}
 
           <button
             type="button"

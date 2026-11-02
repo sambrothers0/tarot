@@ -56,6 +56,8 @@ function drawGrid(ctx: CanvasRenderingContext2D, { w, h }: Size, proj: Projectio
   const top = proj.toWz(0)
   const bottom = proj.toWz(h)
 
+  // Labels are text, so they hold AA contrast (4.5:1) against the pane even
+  // where the grid lines themselves stay faint.
   ctx.lineWidth = 1
   ctx.font = LABEL_FONT
   ctx.textAlign = 'left'
@@ -63,7 +65,7 @@ function drawGrid(ctx: CanvasRenderingContext2D, { w, h }: Size, proj: Projectio
 
   const stroke = (isAxis: boolean) => {
     ctx.strokeStyle = isAxis ? 'rgba(196, 181, 253, 0.5)' : 'rgba(148, 130, 210, 0.1)'
-    ctx.fillStyle = isAxis ? 'rgba(216, 199, 255, 0.85)' : 'rgba(196, 181, 253, 0.45)'
+    ctx.fillStyle = isAxis ? 'rgba(216, 199, 255, 0.9)' : 'rgba(196, 181, 253, 0.75)'
   }
 
   for (let wx = Math.floor(left / step) * step; wx <= right; wx += step) {
@@ -141,7 +143,7 @@ function drawHoverRing(ctx: CanvasRenderingContext2D, proj: Projection, hovered:
 // Axis direction chips, anchored to the corners of the plane.
 function drawAxisChips(ctx: CanvasRenderingContext2D, { w, h }: Size) {
   ctx.font = LABEL_FONT
-  ctx.fillStyle = 'rgba(196, 181, 253, 0.6)'
+  ctx.fillStyle = 'rgba(196, 181, 253, 0.8)'
   ctx.textAlign = 'right'
   ctx.textBaseline = 'top'
   ctx.fillText('X →', w - 10, 8)

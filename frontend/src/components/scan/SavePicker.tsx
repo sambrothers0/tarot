@@ -15,7 +15,7 @@ type Props = {
 // browser hands over handles here; nothing is read until the scan starts.
 export function SavePicker({ sourceKind, onSourceKind, onSave, usingSample, disabled }: Props) {
   return (
-    <div className="grid gap-2 text-left">
+    <div className="grid grid-cols-1 gap-2 text-left">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs font-medium uppercase tracking-[0.35em] text-violet-200/70">
           Save
@@ -53,7 +53,7 @@ export function SavePicker({ sourceKind, onSourceKind, onSave, usingSample, disa
         webkitdirectory={sourceKind === 'folder' ? '' : undefined}
         aria-describedby={usingSample ? `${SAMPLE_ID} ${HINT_ID}` : HINT_ID}
         onChange={(event) => onSave(readSelection(sourceKind, event.target.files))}
-        className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border file:border-solid file:border-violet-300/40 file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-medium file:text-violet-100 hover:bg-white/7"
+        className="min-w-0 rounded-2xl border border-white/35 bg-white/5 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-full file:border file:border-solid file:border-violet-300/40 file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-medium file:text-violet-100 hover:bg-white/7"
       />
       {/* The input can't display a selection it didn't make, so it reads "No
           file chosen". This line says what is selected: the sample world,

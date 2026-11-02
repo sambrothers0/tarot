@@ -18,10 +18,15 @@ export function ScanProgress({ phase, dimension, done, total }: Props) {
   if (phase === 'opening') {
     return (
       <Frame label="Opening save">
-        <div className="relative h-2 w-full overflow-hidden rounded-full border border-white/10 bg-white/5">
+        {/* No aria-valuenow: an indeterminate progressbar. */}
+        <div
+          role="progressbar"
+          aria-label="Opening save"
+          className="relative h-2 w-full overflow-hidden rounded-full border border-white/10 bg-white/5"
+        >
           <span className="indeterminate-bar" />
         </div>
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-slate-400">
           Reading what the world remembers — everything stays on this device.
         </p>
       </Frame>
@@ -31,13 +36,21 @@ export function ScanProgress({ phase, dimension, done, total }: Props) {
   const percent = total > 0 ? Math.round((done / total) * 100) : 0
   return (
     <Frame label="Scanning world" trailing={`${percent}%`}>
-      <div className="h-2 w-full overflow-hidden rounded-full border border-white/10 bg-white/5">
+      <div
+        role="progressbar"
+        aria-label="Scanning world"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        aria-valuetext={`${done.toLocaleString()} of ${total.toLocaleString()} region files`}
+        className="h-2 w-full overflow-hidden rounded-full border border-white/10 bg-white/5"
+      >
         <div
           className="h-full rounded-full bg-gradient-to-r from-violet-400 to-indigo-400 shadow-[0_0_12px_rgba(168,85,247,0.6)] transition-all duration-300"
           style={{ width: `${percent}%` }}
         />
       </div>
-      <p className="mt-2 text-xs text-slate-500">
+      <p className="mt-2 text-xs text-slate-400">
         {done.toLocaleString()} of {total.toLocaleString()} {dimensionLabel(dimension)} region files
         read.
       </p>

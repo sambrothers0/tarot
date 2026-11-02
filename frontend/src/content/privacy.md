@@ -1,4 +1,4 @@
-*Last updated: 1 November 2026*
+*Last updated: 2 November 2026*
 
 Tarot is a free, personal project run by Sam Brothers ("I", "me"). This policy
 explains what Tarot collects, why, and what you can do about it.
@@ -11,7 +11,8 @@ explains what Tarot collects, why, and what you can do about it.
 - **An account is optional.** You can use every scanning feature without
   signing in.
 - **If you sign in with Google**, Tarot stores your Google account ID, email
-  address, name and profile picture URL. That's it.
+  address, name and profile picture URL, plus any scan results you choose to
+  keep as readings (see Readings, below).
 - **Nothing is sold, shared for advertising, or used to track you.** There are
   no analytics, ads or tracking cookies.
 
@@ -20,7 +21,7 @@ explains what Tarot collects, why, and what you can do about it.
 When you pick a save (a zip or a world folder), the browser reads it locally
 and the scan runs on your own machine. Tarot has no server in that path, so the
 contents of your world, its file names and the coordinates it finds are never
-sent anywhere.
+sent anywhere, unless you choose to keep a reading (see below).
 
 ## Signing in with Google
 
