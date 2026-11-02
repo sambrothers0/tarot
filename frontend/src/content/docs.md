@@ -4,6 +4,8 @@ Tarot is a tool for plotting locations of blocks within a Minecraft world. The p
 
 **Use Tarot to locate forgotten builds, nether portals, and existing structures in the world by searching for a specific block type.**
 
+No world on hand? Until you pick a save, the scanner has a small sample world selected — a superflat test map with two nether portals about 13,500 blocks apart — so pressing Scan shows the whole flow. Picking your own save replaces it. The sample only has an Overworld.
+
 ## Why this exists
 
 When you play one specific Minecraft world for 5 years straight, you wind up building a lot of nether portals. After spending a couple hours searching for the location of a previously built, but since-forgotten portal, most players will learn to simply write down the coordinates of each one. This was the system I used for most of my survival world's lifetime. However, the solution isn't good enough. Writing a manual document that you have to constantly update, verify, and backup is extremely error prone and brittle. I needed something better.

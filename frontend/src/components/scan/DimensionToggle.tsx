@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import EndStone from '../../assets/blocks/end-stone.svg?react'
 import Grass from '../../assets/blocks/grass.svg?react'
 import Netherrack from '../../assets/blocks/netherrack.svg?react'
@@ -25,16 +25,38 @@ const PAD = 4
 // Pointer travel before a press becomes a drag rather than a tap.
 const DRAG_SLOP = 4
 
-// The dimension picker: a three-stop slider. A raised thumb carries the chosen
-// dimension's block; the other stops show theirs faintly, so the choices read
-// as places the thumb can go. Tap a stop, drag the thumb, or arrow-key through
-// it — underneath it is a native radio group, which is what gives it keyboard
-// and screen-reader behaviour for free.
+// How far the thumb is from stop `i`, as 1 (on it) falling to 0 one stop away.
+// Plain CSS on the inherited `--dim-pos` (see index.css), so the browser works
+// it out every frame of the glide without React re-rendering. `max(a-b, b-a)`
+// rather than `abs()`, which older browsers lack.
+const nearness = (i: number) =>
+  `max(0, 1 - max(var(--dim-pos) - ${i}, ${i} - var(--dim-pos)))`
+
+// A stop's block, scaled by how near the thumb is. At 1 it's the selected
+// look (32px, opaque, full colour, shadow-md in black/50); at 0 it's the faint
+// marker (24px, 40%, desaturated, no shadow). Hover lifts a marker partway.
+const blockStyle = (i: number): CSSProperties => {
+  const n = nearness(i)
+  const shadow = `rgb(0 0 0 / calc(0.5 * ${n}))`
+  return {
+    opacity: `calc(0.4 + 0.6 * ${n} + 0.3 * var(--dim-hover) * (1 - ${n}))`,
+    transform: `scale(calc(0.75 + 0.25 * ${n}))`,
+    filter: `saturate(calc(0.35 + 0.65 * max(${n}, var(--dim-hover))))`,
+    boxShadow: `0 4px 6px -1px ${shadow}, 0 2px 4px -2px ${shadow}`,
+  }
+}
+
+// The dimension picker: a three-stop slider. The thumb is an empty glass frame,
+// and the blocks stay on the track: each one grows into full size and colour
+// as the thumb arrives over it and fades back to a faint marker as it leaves.
+// Tap a stop, drag the thumb, or arrow-key through it. Underneath it's a native
+// radio group, which is what gives it keyboard and screen-reader behaviour for
+// free.
 export function DimensionToggle({ dimension, onDimension, disabled }: Props) {
   const trackRef = useRef<HTMLDivElement>(null)
   const pressRef = useRef<{ id: number; startX: number; dragging: boolean } | null>(null)
-  // Thumb offset in px while being dragged; null when it sits on a stop.
-  const [dragX, setDragX] = useState<number | null>(null)
+  // Thumb position in stops while being dragged; null when it sits on a stop.
+  const [dragPos, setDragPos] = useState<number | null>(null)
 
   const index = DIMENSIONS.findIndex((d) => d.id === dimension)
   const tone = DIMENSION_TONES[dimension]
@@ -45,7 +67,7 @@ export function DimensionToggle({ dimension, onDimension, disabled }: Props) {
     const thumb = (rect.width - PAD * 2) / DIMENSIONS.length
     const max = thumb * (DIMENSIONS.length - 1)
     const x = Math.min(max, Math.max(0, clientX - rect.left - PAD - thumb / 2))
-    return { x, stop: Math.round(x / thumb) }
+    return { pos: x / thumb, stop: Math.round(x / thumb) }
   }
 
   const select = (stop: number) => {
@@ -64,9 +86,10 @@ export function DimensionToggle({ dimension, onDimension, disabled }: Props) {
     if (press == null || press.id !== event.pointerId) return
     if (!press.dragging && Math.abs(event.clientX - press.startX) < DRAG_SLOP) return
     press.dragging = true
-    const { x, stop } = locate(event.clientX)
-    setDragX(x)
-    // The icon follows the nearest stop mid-drag, so it crossfades under the finger.
+    const { pos, stop } = locate(event.clientX)
+    setDragPos(pos)
+    // The selection follows the nearest stop mid-drag, so the thumb's tint
+    // changes under the finger.
     select(stop)
   }
 
@@ -74,11 +97,11 @@ export function DimensionToggle({ dimension, onDimension, disabled }: Props) {
     const press = pressRef.current
     if (press == null || press.id !== event.pointerId) return
     pressRef.current = null
-    setDragX(null)
+    setDragPos(null)
     if (commit) select(locate(event.clientX).stop)
   }
 
-  const dragging = dragX != null
+  const dragging = dragPos != null
 
   return (
     <div
@@ -90,45 +113,30 @@ export function DimensionToggle({ dimension, onDimension, disabled }: Props) {
       onPointerMove={onPointerMove}
       onPointerUp={(event) => endPress(event, true)}
       onPointerCancel={(event) => endPress(event, false)}
-      className={`relative grid h-16 touch-pan-y select-none grid-cols-3 rounded-2xl border border-white/10 bg-black/20 p-1 shadow-inner shadow-black/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-300 has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-slate-950 ${
+      data-dragging={dragging || undefined}
+      // Glides to the chosen stop (the transition is in index.css) or tracks
+      // the pointer 1:1 while dragged.
+      style={{ '--dim-pos': dragPos ?? index } as CSSProperties}
+      className={`dim-track relative grid h-16 touch-pan-y select-none grid-cols-3 rounded-2xl border border-white/10 bg-black/20 p-1 shadow-inner shadow-black/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-300 has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-slate-950 ${
         disabled ? 'cursor-not-allowed opacity-60' : dragging ? 'cursor-grabbing' : 'cursor-pointer'
       }`}
     >
-      {/* The thumb. Glides between stops on a plain ease-out (no overshoot),
-          or tracks the pointer 1:1 while dragged. Holds every block stacked,
-          crossfading to the chosen one, so the icon changes as it travels. */}
+      {/* The thumb: glass and glow, no block. It rides on `--dim-pos`, so it
+          and the blocks under it can never disagree about where it is. */}
       <div
         aria-hidden="true"
-        className={`absolute inset-y-1 left-1 w-[calc((100%-0.5rem)/3)] rounded-xl border bg-white/[0.07] backdrop-blur-sm transition-[border-color,box-shadow] duration-[260ms] ${
-          dragging
-            ? ''
-            : 'motion-safe:transition-[transform,border-color,box-shadow] motion-safe:duration-[260ms] motion-safe:ease-[cubic-bezier(0.25,1,0.5,1)]'
-        } ${tone.ring} ${disabled ? '' : 'cursor-grab'}`}
+        className={`absolute inset-y-1 left-1 w-[calc((100%-0.5rem)/3)] rounded-xl border bg-white/[0.07] backdrop-blur-sm transition-[border-color,box-shadow] duration-[260ms] ${tone.ring} ${disabled ? '' : 'cursor-grab'}`}
         style={{
-          transform: dragging ? `translateX(${dragX}px)` : `translateX(${index * 100}%)`,
+          transform: 'translateX(calc(var(--dim-pos) * 100%))',
           boxShadow: `0 6px 18px -6px rgb(0 0 0 / 0.7), 0 0 22px -8px ${tone.dot}, inset 0 1px 0 rgb(255 255 255 / 0.08)`,
         }}
-      >
-        {DIMENSIONS.map((d) => {
-          const Block = BLOCKS[d.id]
-          const active = d.id === dimension
-          return (
-            <Block
-              key={d.id}
-              className={`absolute inset-0 m-auto size-8 rounded-[3px] shadow-md shadow-black/50 transition-opacity duration-200 ease-out motion-reduce:transition-none ${
-                active ? 'opacity-100' : 'opacity-0'
-              }`}
-            />
-          )
-        })}
-      </div>
+      />
 
-      {/* The stops. Each is a real radio, visually hidden; the faint block is
-          what shows where the thumb can go. The chosen stop's ghost hides so
-          the thumb's own icon is the only one there. */}
-      {DIMENSIONS.map((d) => {
+      {/* The stops. Each is a real radio, visually hidden, with its block
+          drawn above the thumb. How big and how vivid the block is depends
+          on how close the thumb is (`blockStyle`). */}
+      {DIMENSIONS.map((d, i) => {
         const Block = BLOCKS[d.id]
-        const active = d.id === dimension
         return (
           <label
             key={d.id}
@@ -139,7 +147,7 @@ export function DimensionToggle({ dimension, onDimension, disabled }: Props) {
               type="radio"
               name="dimension"
               value={d.id}
-              checked={active}
+              checked={d.id === dimension}
               disabled={disabled}
               onChange={() => onDimension(d.id)}
               aria-label={d.label}
@@ -147,11 +155,8 @@ export function DimensionToggle({ dimension, onDimension, disabled }: Props) {
             />
             <Block
               aria-hidden="true"
-              className={`size-6 rounded-[2px] saturate-[0.35] transition-[opacity,filter] duration-200 ease-out motion-reduce:transition-none ${
-                active
-                  ? 'opacity-0'
-                  : `opacity-40 ${disabled ? '' : 'group-hover:opacity-70 group-hover:saturate-100'}`
-              }`}
+              style={blockStyle(i)}
+              className={`dim-block size-8 rounded-[3px] ${disabled ? '' : 'group-hover:[--dim-hover:1]'}`}
             />
           </label>
         )

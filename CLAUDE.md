@@ -113,6 +113,16 @@ isn't markup; nothing under `components/` reaches back up into a page.
   nothing is fetched at build time or at runtime, so a failed refresh just
   leaves the last snapshot in place. `ScanForm` offers it as a `<datalist>`
   on a free-text input, so modded or newer blocks still scan.
+- `lib/sampleWorld.ts` — the sample world, which stands in whenever no save is
+  picked (`selectedSave === null` in `Index.tsx`), so a visitor without a world
+  can still press Scan; the button reads "Scan the sample world" and a line under
+  the picker says it's selected. `assets/sample-world.zip` (~1.2 MB, imported
+  `?url`, so it's hashed into `dist/assets/`) holds only
+  `sample-world/region/*.mca` from a superflat test save: two nether portals,
+  overworld only. Fetched on the first sample scan, inside the `opening` phase,
+  then cached; from there it's an ordinary zip `SaveInput`. Unlike the test
+  saves it is a real, committed file, because it's a product asset and not a
+  fixture. Never add level.dat or playerdata to it (they carry player UUIDs).
 - `lib/scanWorld.ts` — spawns the coordinator worker, reports `opened`/
   `progress` back through callbacks, and resolves with the result. Converts the
   flat `Int32Array` of coordinates into `[{x,y,z}]` at the worker boundary, so
