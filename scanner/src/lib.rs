@@ -46,30 +46,33 @@ impl Default for ExternalChunks {
     }
 }
 
-/// The outcome of scanning one region file.
+/// The outcome of scanning one region file for one or more blocks.
 ///
 /// `coords` is a flat run of `x, y, z` triples rather than a list of objects:
 /// a dense block yields millions of matches, and building a JS object per
-/// match across the wasm boundary costs more than the scan itself.
+/// match across the wasm boundary costs more than the scan itself. The runs
+/// for each target sit back to back, in target order; `lengths[i]` says how
+/// many triples belong to target `i`.
 #[wasm_bindgen]
 pub struct ScanResult {
-    count: f64,
-    truncated: bool,
+    counts: Vec<f64>,
+    lengths: Vec<u32>,
     coords: Vec<i32>,
 }
 
 #[wasm_bindgen]
 impl ScanResult {
-    /// Every match found, including those past the coordinate limit.
+    /// Every match found per target, including those past its coordinate limit.
     #[wasm_bindgen(getter)]
-    pub fn count(&self) -> f64 {
-        self.count
+    pub fn counts(&self) -> Vec<f64> {
+        self.counts.clone()
     }
 
-    /// True when `count` exceeds the coordinate limit, so `coords` is a prefix.
+    /// How many coordinate triples each target retained, in target order.
+    /// Where this is less than the target's count, its coordinates are a prefix.
     #[wasm_bindgen(getter)]
-    pub fn truncated(&self) -> bool {
-        self.truncated
+    pub fn lengths(&self) -> Vec<u32> {
+        self.lengths.clone()
     }
 
     /// Move the coordinates out into a JS `Int32Array`.
@@ -83,27 +86,48 @@ impl ScanResult {
     }
 }
 
-/// Scan one region file (`.mca`) for `block_type`.
+/// Scan one region file (`.mca`) for every block in `block_types` at once.
 ///
-/// `limit` caps how many coordinates are *retained*; the returned `count` is
-/// always the true total. A bare block id is namespaced (`stone` becomes
-/// `minecraft:stone`), matching the reference implementation.
+/// `limits[i]` caps how many coordinates are *retained* for `block_types[i]`
+/// (a missing limit means 0); the returned counts are always the true totals.
+/// A bare block id is namespaced (`stone` becomes `minecraft:stone`), matching
+/// the reference implementation. Each chunk is inflated once however many
+/// blocks are asked for. Targets past [`nbt::MAX_TARGETS`] are ignored, and
+/// a duplicated target only ever matches under its first index.
 #[wasm_bindgen(js_name = scanRegion)]
 pub fn scan_region(
     mca: &[u8],
     externals: &ExternalChunks,
-    block_type: &str,
-    limit: u32,
+    block_types: Vec<String>,
+    limits: &[u32],
 ) -> ScanResult {
-    let target = normalize_block_type(block_type);
-    let mut sink = MatchSink::new(limit as usize);
-    region::scan_region(mca, &externals.inner, target.as_bytes(), &mut sink);
+    let targets: Vec<String> = block_types
+        .iter()
+        .take(nbt::MAX_TARGETS)
+        .map(|b| normalize_block_type(b))
+        .collect();
+    let target_bytes: Vec<&[u8]> = targets.iter().map(|t| t.as_bytes()).collect();
+    let mut sinks: Vec<MatchSink> = (0..targets.len())
+        .map(|i| MatchSink::new(limits.get(i).copied().unwrap_or(0) as usize))
+        .collect();
+    region::scan_region_multi(mca, &externals.inner, &target_bytes, &mut sinks);
 
-    let count = sink.count();
-    let coords = sink.into_coords();
+    let counts = sinks.iter().map(MatchSink::count).collect();
+    let mut lengths = Vec::with_capacity(sinks.len());
+    let mut coords = Vec::new();
+    for sink in sinks {
+        let run = sink.into_coords();
+        lengths.push((run.len() / 3) as u32);
+        if coords.is_empty() {
+            // The common single-target case moves its buffer, no copy.
+            coords = run;
+        } else {
+            coords.extend_from_slice(&run);
+        }
+    }
     ScanResult {
-        count,
-        truncated: count > (coords.len() / 3) as f64,
+        counts,
+        lengths,
         coords,
     }
 }

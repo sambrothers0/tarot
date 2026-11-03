@@ -35,9 +35,11 @@ export type WorldScanRequest = {
   // ever read one region at a time, so it is never copied into the heap either.
   save: SaveInput
   dimension: string
-  blockType: string
-  // How many coordinates to retain. The reported count is always the true
-  // total; this only bounds what the map has to draw.
+  // Every block to look for, distinct and namespaced or not. One pass of the
+  // save finds them all.
+  blockTypes: string[]
+  // How many coordinates to retain per block. The reported counts are always
+  // the true totals; this only bounds what the map has to draw.
   limit: number
 }
 
@@ -46,7 +48,7 @@ export type WorldScanResponse =
   // switch from indeterminate to a real regions-done/total reading.
   | { type: 'opened'; regionCount: number }
   | { type: 'progress'; done: number; total: number }
-  | { type: 'done'; count: number; coords: Int32Array; truncated: boolean }
+  | ({ type: 'done' } & ScanTotals)
   | { type: 'error'; message: string }
 
 // Cap on the pool. Each worker is a wasm instance with its own heap and its own
@@ -72,7 +74,7 @@ function poolSize(regionCount: number): number {
 /** Bring every worker up with its own wasm instance and the sidecar table. */
 function initWorkers(
   workers: Worker[],
-  blockType: string,
+  blockTypes: string[],
   externals: [string, Uint8Array][],
 ): Promise<unknown[]> {
   return Promise.all(
@@ -85,7 +87,7 @@ function initWorkers(
           }
           worker.onerror = (event) =>
             reject(new Error(event.message || 'A scan worker failed to start'))
-          const message: RegionScanRequest = { type: 'init', blockType, externals }
+          const message: RegionScanRequest = { type: 'init', blockTypes, externals }
           // No transfer list: each worker needs its *own* copy of the sidecars.
           // Transferring would move ownership and only the first would get them.
           worker.postMessage(message)
@@ -142,8 +144,8 @@ async function scanWorld(request: WorldScanRequest): Promise<ScanTotals> {
     () => new Worker(new URL('./regionScan.worker.ts', import.meta.url), { type: 'module' }),
   )
   try {
-    await initWorkers(workers, request.blockType, externals)
-    return await runPool(workers, mca, request.limit, (done, total) =>
+    await initWorkers(workers, request.blockTypes, externals)
+    return await runPool(workers, mca, request.blockTypes.length, request.limit, (done, total) =>
       post({ type: 'progress', done, total }),
     )
   } finally {

@@ -34,8 +34,8 @@ describe('fitView', () => {
   it('centres on the bounding box of the matches', () => {
     const v = fitView(
       [
-        { x: -100, y: 0, z: 20 },
-        { x: 300, y: 64, z: 220 },
+        { x: -100, y: 0, z: 20, layer: 0 },
+        { x: 300, y: 64, z: 220, layer: 0 },
       ],
       size,
     )
@@ -45,9 +45,9 @@ describe('fitView', () => {
 
   it('keeps every match on screen with some padding', () => {
     const matches = [
-      { x: -5000, y: 0, z: -300 },
-      { x: 4000, y: 0, z: 7000 },
-      { x: 12, y: 0, z: 12 },
+      { x: -5000, y: 0, z: -300, layer: 0 },
+      { x: 4000, y: 0, z: 7000, layer: 0 },
+      { x: 12, y: 0, z: 12, layer: 0 },
     ]
     const v = fitView(matches, size)
     const p = projection(v, size)
@@ -61,17 +61,17 @@ describe('fitView', () => {
 
   it('frames at least 48 blocks, so a lone pin is not blown up', () => {
     const small = { w: 100, h: 100 }
-    const v = fitView([{ x: 7, y: 0, z: 7 }, { x: 9, y: 0, z: 9 }], small)
+    const v = fitView([{ x: 7, y: 0, z: 7, layer: 0 }, { x: 9, y: 0, z: 9, layer: 0 }], small)
     expect(v.ppb).toBeCloseTo(100 / (48 * 1.3))
     // On a big canvas that minimum span would exceed the zoom ceiling.
-    expect(fitView([{ x: 7, y: 0, z: 7 }], size).ppb).toBe(MAX_PPB)
+    expect(fitView([{ x: 7, y: 0, z: 7, layer: 0 }], size).ppb).toBe(MAX_PPB)
   })
 
   it('clamps the zoom for a world-spanning result', () => {
     const v = fitView(
       [
-        { x: -30_000_000, y: 0, z: -30_000_000 },
-        { x: 30_000_000, y: 0, z: 30_000_000 },
+        { x: -30_000_000, y: 0, z: -30_000_000, layer: 0 },
+        { x: 30_000_000, y: 0, z: 30_000_000, layer: 0 },
       ],
       size,
     )

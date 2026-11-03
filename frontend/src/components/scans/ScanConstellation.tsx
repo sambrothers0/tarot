@@ -1,9 +1,12 @@
 import { DIMENSION_TONES } from './dimensionTones'
 import type { Dimension } from '../../lib/scanOptions'
+import type { PreviewPoint } from '../../lib/savedScans'
+import { glyph, layerStyle } from '../worldmap/layers'
 
 type Props = {
-  points: [number, number][]
+  points: PreviewPoint[]
   dimension: Dimension
+  layerCount: number
 }
 
 const SIZE = 64
@@ -12,7 +15,7 @@ const PAD = 10
 // A saved scan's thumbnail: its preview columns, fitted to a square the way the
 // map fits the real thing (+X right, +Z down). Uniform scale, so a long thin
 // spread stays long and thin.
-export function ScanConstellation({ points, dimension }: Props) {
+export function ScanConstellation({ points, dimension, layerCount }: Props) {
   const xs = points.map(([x]) => x)
   const zs = points.map(([, z]) => z)
   const minX = Math.min(...xs)
@@ -35,7 +38,7 @@ export function ScanConstellation({ points, dimension }: Props) {
         stroke="rgba(196,181,253,0.08)"
         strokeWidth="1"
       />
-      {points.length === 0 ? null : (
+      {points.length === 0 ? null : layerCount <= 1 ? (
         <g fill={color}>
           {points.map(([x, z], i) => (
             <circle
@@ -46,6 +49,23 @@ export function ScanConstellation({ points, dimension }: Props) {
               opacity={0.85}
             />
           ))}
+        </g>
+      ) : (
+        // Several blocks: each point in its block's colour and shape, the way
+        // the map draws it, last block first so the first sits on top.
+        <g opacity={0.9}>
+          {points
+            .map((point, i) => ({ point, i }))
+            .sort((a, b) => b.point[2] - a.point[2])
+            .map(({ point: [x, z, layer], i }) => {
+              const style = layerStyle(layer, layerCount)
+              const { d, stroke } = glyph(style.shape, offX + (x - minX) * scale, offZ + (z - minZ) * scale, 1.9)
+              return stroke ? (
+                <path key={i} d={d} fill="none" stroke={style.color} strokeWidth={stroke * 0.6} />
+              ) : (
+                <path key={i} d={d} fill={style.color} />
+              )
+            })}
         </g>
       )}
     </svg>

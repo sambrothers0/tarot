@@ -4,12 +4,14 @@ import { PortalLoader } from '../../assets/PortalLoader'
 import CloseIcon from '../../assets/icons/close.svg?react'
 import PencilIcon from '../../assets/icons/pencil.svg?react'
 import TrashIcon from '../../assets/icons/trash.svg?react'
-import { blockName } from '../../lib/blockTypes'
-import { MAX_MATCHES } from '../../lib/scanOptions'
+import { layersTitle } from '../../lib/blockTypes'
+import { coordinatesJson, MAX_MATCHES } from '../../lib/scanOptions'
 import { loadScanMatches } from '../../lib/savedScans'
 import type { SavedScanSummary } from '../../lib/savedScans'
 import { writeClipboard } from '../worldmap/clipboard'
 import type { BlockMatch } from '../worldmap/types'
+import { MapLegend } from '../worldmap/MapLegend'
+import { useHiddenLayers } from '../worldmap/useHiddenLayers'
 import { WorldMap } from '../worldmap/WorldMap'
 import { ScanConstellation } from './ScanConstellation'
 import { BlockTitle, DimensionBadge, SourceLabel } from './ScanMeta'
@@ -75,6 +77,7 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
   const [renaming, setRenaming] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const { hidden, toggle: toggleLayer } = useHiddenLayers(map.kind === 'ready' ? map.matches : null)
 
   const load = () => {
     const ticket = ++loadRef.current
@@ -214,13 +217,13 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
 
   const copyCoordinates = async () => {
     if (map.kind !== 'ready') return
-    if (await writeClipboard(JSON.stringify(map.matches))) {
+    if (await writeClipboard(coordinatesJson({ layers: scan.layers, matches: map.matches }))) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
   }
 
-  const title = scan.name || blockName(scan.blockType) || scan.blockType
+  const title = scan.name || layersTitle(scan.layers)
 
   return (
     <li
@@ -248,7 +251,11 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
             expanded ? 'mr-0 w-0 opacity-0' : 'mr-4 w-20 opacity-100 sm:mr-5 sm:w-24'
           }`}
         >
-          <ScanConstellation points={scan.preview} dimension={scan.dimension} />
+          <ScanConstellation
+            points={scan.preview}
+            dimension={scan.dimension}
+            layerCount={scan.layers.length}
+          />
         </div>
 
         <div className="pointer-events-none relative flex min-w-0 flex-1 flex-col">
@@ -264,7 +271,7 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
                   onFocus={(e) => e.currentTarget.select()}
                   disabled={renaming}
                   maxLength={100}
-                  placeholder={blockName(scan.blockType) ?? scan.blockType}
+                  placeholder={layersTitle(scan.layers)}
                   aria-label="Reading name"
                   aria-describedby={`rename-hint-${scan.id}`}
                   className={`pointer-events-auto -mx-2 rounded-lg border border-violet-300/30 bg-white/5 px-2 font-semibold tracking-tight text-white outline-none placeholder:text-slate-400 focus:border-violet-300/60 focus:ring-2 focus:ring-violet-300/60 disabled:opacity-60 ${
@@ -272,12 +279,13 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
                   }`}
                 />
                 <span id={`rename-hint-${scan.id}`} className="mt-1 text-[11px] text-slate-400">
-                  Enter to rename · Esc to cancel · leave blank for the block&rsquo;s name
+                  Enter to rename · Esc to cancel · leave blank for the{' '}
+                  {scan.layers.length > 1 ? 'blocks\u2019 names' : 'block\u2019s name'}
                 </span>
               </span>
             ) : (
               <BlockTitle
-                blockType={scan.blockType}
+                layers={scan.layers}
                 name={scan.name}
                 large={expanded}
                 action={
@@ -383,6 +391,7 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
           ) : scan.truncated ? (
             <p className="mt-2 text-[11px] text-amber-200/70">
               Map holds the first {MAX_MATCHES.toLocaleString()}
+              {scan.layers.length > 1 ? ' of each block' : ''}
             </p>
           ) : null}
         </div>
@@ -406,7 +415,7 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
           >
             <div className="overflow-hidden rounded-2xl border border-violet-300/10 bg-slate-950/50">
               {map.kind === 'ready' ? (
-                <WorldMap matches={map.matches} />
+                <WorldMap matches={map.matches} layers={scan.layers} hidden={hidden} />
               ) : (
                 <div className="flex aspect-square items-center justify-center p-6 text-center">
                   {map.kind === 'failed' ? (
@@ -429,6 +438,10 @@ export function SavedScanCard({ scan, now, expanded, onToggle, onDelete, onRenam
                 </div>
               )}
             </div>
+
+            {map.kind === 'ready' ? (
+              <MapLegend layers={scan.layers} hidden={hidden} onToggle={toggleLayer} className="mt-3" />
+            ) : null}
 
             <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
               {map.kind === 'ready' && map.matches.length > 0 ? (

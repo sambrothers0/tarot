@@ -72,9 +72,9 @@ export function SavePicker({ sourceKind, onSourceKind, onSave, usingSample, disa
 const HINT_ID = 'save-hint'
 const SAMPLE_ID = 'save-sample'
 
-// What a player wants to know before picking: where the thing is, whether it
-// leaves the machine, and what could go wrong. Folder mode has the most to say —
-// Chrome's own picker calls it an "upload", which is exactly the fear to answer.
+// What a player wants to know before picking: whether it leaves the machine.
+// Folder mode has to say so outright — Chrome's own picker calls it an
+// "upload", which is exactly the fear to answer.
 function SaveHint({ id, sourceKind }: { id: string; sourceKind: SourceKind }) {
   if (sourceKind === 'zip') {
     return (
@@ -85,14 +85,9 @@ function SaveHint({ id, sourceKind }: { id: string; sourceKind: SourceKind }) {
     )
   }
   return (
-    <ul id={id} className="grid gap-1 text-xs leading-5 text-slate-400">
-      <li>
-        Pick the world’s own folder, inside{' '}
-        <span className="font-mono text-[0.6875rem] text-violet-100/90">.minecraft/saves</span>.
-      </li>
-      <li>Your browser may call it an “upload”. Nothing leaves this computer.</li>
-      <li>Close the world in Minecraft first, so its files hold still during the scan.</li>
-    </ul>
+    <p id={id} className="text-xs leading-5 text-slate-400">
+      Your browser may call it an “upload”. Nothing leaves this computer.
+    </p>
   )
 }
 

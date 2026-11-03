@@ -18,7 +18,7 @@ const LABEL: Record<Dimension, string> = { overworld: 'Overworld', nether: 'Neth
 async function scan(
   page: Page,
   save: { kind: 'zip' | 'folder'; path: string },
-  options: { block?: string; dimension?: Dimension } = {},
+  options: { block?: string; blocks?: string[]; dimension?: Dimension } = {},
 ) {
   await page.goto('/')
   // Folder is the default; a zip needs the toggle.
@@ -26,7 +26,13 @@ async function scan(
     await page.getByRole('group', { name: 'Save format' }).getByRole('button', { name: 'Zip file' }).click()
   }
   await page.locator('input[type=file]').setInputFiles(save.path)
-  await page.getByLabel('Block type').fill(options.block ?? TARGET)
+  // The form starts with the nether portal listed; replace it with what was asked.
+  await page.getByRole('button', { name: 'Remove Nether Portal' }).click()
+  const field = page.getByRole('combobox', { name: 'Block types' })
+  for (const block of options.blocks ?? [options.block ?? TARGET]) {
+    await field.fill(block)
+    await field.press('Enter')
+  }
   await page
     .getByRole('radiogroup', { name: 'Dimension' })
     .getByRole('radio', { name: LABEL[options.dimension ?? 'overworld'] })
@@ -174,5 +180,63 @@ test.describe('errors', () => {
     await scan(page, { kind: 'folder', path: fx.savesFolder })
     await expect(errorPanel(page)).toContainText('holds 2 worlds')
     await expect(errorPanel(page)).toContainText('OtherWorld')
+  })
+})
+
+// Several blocks at once (see "Several block types per scan" in CLAUDE.md). The
+// synthetic overworld holds 7 portal blocks and stone in two sections: one
+// uniform (4096) and one around a 4-tall portal column (4092).
+const STONE = 4096 + 4092
+
+test.describe('several block types', () => {
+  test('are found in one pass, each counted, and copied keyed by block', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await scan(page, { kind: 'zip', path: fx.zip }, { blocks: ['nether_portal', 'Stone'] })
+    const line = page.getByText(/^Found [\d,]+ matching blocks across 2 block types/)
+    await expect(line).toBeVisible({ timeout: 30_000 })
+    const portal = EXPECTED.overworld.count
+    await expect(line).toContainText(`${(portal + STONE).toLocaleString('en-US')} matching`)
+
+    await page.getByRole('button', { name: 'Copy coordinates as JSON' }).click()
+    const copied = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()))
+    expect(Object.keys(copied)).toEqual([TARGET, 'minecraft:stone'])
+    expect(copied[TARGET]).toHaveLength(portal)
+    expect(copied[TARGET][0]).toEqual(EXPECTED.overworld.first)
+    expect(copied['minecraft:stone']).toHaveLength(STONE)
+  })
+
+  test('each get a legend toggle that takes them off the map', async ({ page }) => {
+    await scan(page, { kind: 'zip', path: fx.zip }, { blocks: ['nether_portal', 'stone'] })
+    const legend = page.getByRole('group', { name: 'Block types on the map' })
+    const stone = legend.getByRole('button', { name: /Stone/ })
+    await expect(stone).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByRole('application', { name: /across 2 block types$/ })).toBeVisible()
+
+    await stone.click()
+    await expect(stone).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.getByRole('application', { name: /across 2 block types, 1 shown$/ })).toBeVisible()
+    // The last block showing can't be hidden too.
+    const portal = legend.getByRole('button', { name: /Nether Portal/ })
+    await expect(portal).toHaveAttribute('aria-disabled', 'true')
+    await expect(portal).toHaveAttribute('aria-pressed', 'true')
+
+    await stone.click()
+    await expect(page.getByRole('application', { name: /across 2 block types$/ })).toBeVisible()
+  })
+
+  test('refuses a duplicate and stops at six', async ({ page }) => {
+    await page.goto('/')
+    const field = page.getByRole('combobox', { name: 'Block types' })
+    await field.fill('Nether Portal')
+    await field.press('Enter')
+    await expect(page.getByText('Nether Portal is already on the list.')).toBeVisible()
+    for (const block of ['stone', 'dirt', 'obsidian', 'bedrock', 'glass']) {
+      await field.fill(block)
+      await field.press('Enter')
+    }
+    await expect(page.getByText('6 of 6')).toBeVisible()
+    await expect(field).toBeHidden()
+    await page.getByRole('button', { name: 'Remove Glass' }).click()
+    await expect(page.getByRole('combobox', { name: 'Block types' })).toBeVisible()
   })
 })

@@ -22,30 +22,38 @@ export type RegionScanRequest =
   // Sent once, before any region. `externals` is the dimension's `.mcc`
   // oversized-chunk sidecars, which are shared by every region file in the
   // directory — so they are cloned into each worker and kept for the run.
-  | { type: 'init'; blockType: string; externals: [string, Uint8Array][] }
+  | { type: 'init'; blockTypes: string[]; externals: [string, Uint8Array][] }
   // `data` is the region file as stored in the zip: `method` is the zip
   // compression method (0 stored, 8 deflated) and `size` its inflated length,
   // both taken from the archive's central directory.
   //
-  // `limit` is how many coordinates this region may still contribute; it
-  // shrinks as the overall cap fills, so a dense block stops paying to
-  // marshal coordinates nobody will keep.
+  // `limits[i]` is how many coordinates this region may still contribute for
+  // block `i`; each shrinks as that block's cap fills, so a dense block stops
+  // paying to marshal coordinates nobody will keep.
   | {
       type: 'region'
       index: number
       data: Uint8Array<ArrayBuffer>
       method: number
       size: number
-      limit: number
+      limits: number[]
     }
 
 export type RegionScanResponse =
   | { type: 'ready' }
-  | { type: 'result'; index: number; count: number; coords: Int32Array }
+  // One scan of the region for every block: `counts[i]` and `lengths[i]` (kept
+  // triples) per block, and the kept runs back to back in `coords`.
+  | {
+      type: 'result'
+      index: number
+      counts: Float64Array
+      lengths: Uint32Array
+      coords: Int32Array
+    }
   | { type: 'error'; message: string }
 
 let externals: ExternalChunks | null = null
-let blockType = ''
+let blockTypes: string[] = []
 
 const post = (message: RegionScanResponse, transfer: Transferable[] = []) =>
   (self as unknown as { postMessage(m: unknown, t: Transferable[]): void }).postMessage(
@@ -61,7 +69,7 @@ self.addEventListener('message', async (event: MessageEvent<RegionScanRequest>) 
       const table = new ExternalChunks()
       for (const [name, bytes] of message.externals) table.insert(name, bytes)
       externals = table
-      blockType = message.blockType
+      blockTypes = message.blockTypes
       post({ type: 'ready' })
       return
     }
@@ -73,14 +81,15 @@ self.addEventListener('message', async (event: MessageEvent<RegionScanRequest>) 
       method: message.method,
       uncompressedSize: message.size,
     })
-    const result = scanRegion(region, externals, blockType, message.limit)
-    const count = result.count
+    const result = scanRegion(region, externals, blockTypes, Uint32Array.from(message.limits))
+    const counts = result.counts
+    const lengths = result.lengths
     // Take the coordinates before freeing: `takeCoords` moves the buffer out of
     // wasm memory rather than copying it a second time.
     const coords = result.takeCoords()
     result.free()
     // Transfer, don't clone — the coordinate buffer belongs to the coordinator now.
-    post({ type: 'result', index: message.index, count, coords }, [coords.buffer])
+    post({ type: 'result', index: message.index, counts, lengths, coords }, [coords.buffer])
   } catch (error) {
     post({ type: 'error', message: error instanceof Error ? error.message : 'Scan failed' })
   }

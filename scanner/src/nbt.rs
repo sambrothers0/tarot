@@ -1,5 +1,7 @@
 //! A purpose-built, allocation-light NBT reader for the one question this app
-//! asks: "where are the blocks of type X in this chunk?".
+//! asks: "where are the blocks of type X in this chunk?" — or of types X, Y and
+//! Z at once: one walk of the chunk answers for every target, each into its own
+//! [`MatchSink`].
 //!
 //! Direct port of the reference implementation in `backend/fastnbt.py`. A
 //! general NBT library eagerly materializes an object for *every* tag in
@@ -192,23 +194,32 @@ fn skip(buf: &[u8], pos: usize, tag: u8, depth: u32) -> Option<usize> {
     }
 }
 
-/// Which palette entries name the target block.
+/// The most targets one scan can carry: a palette entry records its target as
+/// a `u8` (0 for none), so target indices run 1..=255. The app asks for far
+/// fewer; extra targets past this are ignored rather than panicking.
+pub const MAX_TARGETS: usize = u8::MAX as usize;
+
+/// Which palette entries name a target block, and which one.
 struct Palette {
     /// Number of entries — this sets the packed index width.
     len: usize,
-    /// `is_target[i]` for each palette index.
-    is_target: Vec<bool>,
+    /// For each palette index, 0 if it names no target, else the target's
+    /// index plus one. A `u8` rather than an `Option<usize>` keeps the flag
+    /// vector as small as the single-target `bool` one it replaced.
+    target: Vec<u8>,
     any: bool,
 }
 
-/// Read a section's `palette` list, flagging the entries whose `Name` is the
-/// target block.
+/// Read a section's `palette` list, tagging each entry whose `Name` is one of
+/// the targets with that target's index plus one.
 ///
 /// The reference implementation decodes every name into a string and then
 /// builds a set of matching indices; here the names are compared as raw bytes,
 /// so a section whose palette holds no match costs zero allocations beyond the
-/// flag vector. Block ids are ASCII, so byte equality and string equality agree.
-fn read_palette(buf: &[u8], pos: usize, target: &[u8]) -> Option<Palette> {
+/// tag vector. Block ids are ASCII, so byte equality and string equality agree.
+/// The first target that equals a name wins, so a duplicated target gets
+/// nothing — the caller is expected to pass distinct ones.
+fn read_palette(buf: &[u8], pos: usize, targets: &[&[u8]]) -> Option<Palette> {
     // List header: element type (compound) + entry count.
     let count = i32_at(buf, pos + 1)?;
     let mut pos = pos.checked_add(5)?;
@@ -217,10 +228,10 @@ fn read_palette(buf: &[u8], pos: usize, target: &[u8]) -> Option<Palette> {
     }
     let count = count as usize;
 
-    let mut is_target = Vec::with_capacity(count);
+    let mut target = Vec::with_capacity(count);
     let mut any = false;
     for _ in 0..count {
-        let mut hit = false;
+        let mut hit = 0u8;
         loop {
             let child = byte_at(buf, pos)?;
             pos += 1;
@@ -232,17 +243,21 @@ fn read_palette(buf: &[u8], pos: usize, target: &[u8]) -> Option<Palette> {
             if child == TAG_STRING && key == b"Name" {
                 let (next, name) = read_name(buf, pos)?;
                 pos = next;
-                hit = name == target;
+                hit = targets
+                    .iter()
+                    .take(MAX_TARGETS)
+                    .position(|t| *t == name)
+                    .map_or(0, |i| i as u8 + 1);
             } else {
                 pos = skip(buf, pos, child, 1)?;
             }
         }
-        any |= hit;
-        is_target.push(hit);
+        any |= hit != 0;
+        target.push(hit);
     }
     Some(Palette {
         len: count,
-        is_target,
+        target,
         any,
     })
 }
@@ -257,15 +272,27 @@ fn index_bits(palette_len: usize) -> usize {
     bits.max(4)
 }
 
-/// Scan one section's `block_states` compound for the target block.
+/// The sink a palette tag points at: none for 0, else `out[tag - 1]`. Checked,
+/// so a caller that passes fewer sinks than targets loses matches rather than
+/// panicking.
+#[inline]
+fn sink_for(out: &mut [MatchSink], tag: u8) -> Option<&mut MatchSink> {
+    if tag == 0 {
+        None
+    } else {
+        out.get_mut(tag as usize - 1)
+    }
+}
+
+/// Scan one section's `block_states` compound for the target blocks.
 fn emit_block_states(
     buf: &[u8],
     pos: usize,
-    target: &[u8],
+    targets: &[&[u8]],
     base_x: i32,
     base_y: i32,
     base_z: i32,
-    out: &mut MatchSink,
+    out: &mut [MatchSink],
 ) -> Option<()> {
     let mut palette_pos: Option<usize> = None;
     let mut data_pos: Option<usize> = None;
@@ -290,7 +317,7 @@ fn emit_block_states(
         Some(p) => p,
         None => return Some(()),
     };
-    let palette = read_palette(buf, palette_pos, target)?;
+    let palette = read_palette(buf, palette_pos, targets)?;
     if !palette.any {
         // The expensive decode below only happens for matching sections.
         return Some(());
@@ -300,9 +327,10 @@ fn emit_block_states(
     let data_pos = match data_pos {
         Some(p) => p,
         None => {
-            if palette.is_target.first().copied().unwrap_or(false) {
+            let tag = palette.target.first().copied().unwrap_or(0);
+            if let Some(sink) = sink_for(out, tag) {
                 for idx in 0..SECTION_BLOCKS {
-                    out.add(
+                    sink.add(
                         base_x + (idx & 15) as i32,
                         base_y + (idx >> 8) as i32,
                         base_z + ((idx >> 4) & 15) as i32,
@@ -333,7 +361,7 @@ fn emit_block_states(
     } else {
         (1u64 << bits) - 1
     };
-    let flags = &palette.is_target;
+    let tags = &palette.target;
 
     let mut idx = 0usize;
     // `as_chunks` yields whole `[u8; 8]` words; a trailing partial word (which
@@ -347,8 +375,9 @@ fn emit_block_states(
             let entry = (value & mask) as usize;
             // Indices past the palette can't match; the reference does the same
             // by testing membership in a set of real indices.
-            if flags.get(entry).copied().unwrap_or(false) {
-                out.add(
+            let tag = tags.get(entry).copied().unwrap_or(0);
+            if let Some(sink) = sink_for(out, tag) {
+                sink.add(
                     base_x + (idx & 15) as i32,
                     base_y + (idx >> 8) as i32,
                     base_z + ((idx >> 4) & 15) as i32,
@@ -365,10 +394,10 @@ fn emit_block_states(
 fn scan_sections(
     buf: &[u8],
     pos: usize,
-    target: &[u8],
+    targets: &[&[u8]],
     chunk_x: i32,
     chunk_z: i32,
-    out: &mut MatchSink,
+    out: &mut [MatchSink],
 ) -> Option<()> {
     let elem = byte_at(buf, pos)?;
     let count = i32_at(buf, pos + 1)?;
@@ -404,7 +433,7 @@ fn scan_sections(
 
         // Sections that are pure air carry only biomes/lighting (no block_states).
         if let (Some(bs), Some(y)) = (block_states_pos, section_y) {
-            emit_block_states(buf, bs, target, base_x, y.wrapping_mul(16), base_z, out)?;
+            emit_block_states(buf, bs, targets, base_x, y.wrapping_mul(16), base_z, out)?;
         }
     }
     Some(())
@@ -412,10 +441,19 @@ fn scan_sections(
 
 /// Feed every `target`-block coordinate found in one decompressed chunk to `out`.
 ///
+/// The single-target form of [`scan_chunk_multi`], kept for the oracle and the
+/// tests that compare against it.
+pub fn scan_chunk(buf: &[u8], target: &[u8], out: &mut MatchSink) -> Option<()> {
+    scan_chunk_multi(buf, &[target], std::slice::from_mut(out))
+}
+
+/// Feed every coordinate of `targets[i]` found in one decompressed chunk to
+/// `out[i]`, in one walk of the chunk.
+///
 /// Silently ignores chunks that are still generating (no `sections`) or lack
 /// their position tags, mirroring the "a bad chunk shouldn't sink the save"
 /// tolerance of the region reader.
-pub fn scan_chunk(buf: &[u8], target: &[u8], out: &mut MatchSink) -> Option<()> {
+pub fn scan_chunk_multi(buf: &[u8], targets: &[&[u8]], out: &mut [MatchSink]) -> Option<()> {
     // Root is a named TAG_Compound: id byte, name length, name, then payload.
     if byte_at(buf, 0)? != TAG_COMPOUND {
         return Some(());
@@ -446,7 +484,7 @@ pub fn scan_chunk(buf: &[u8], target: &[u8], out: &mut MatchSink) -> Option<()> 
     }
 
     match (chunk_x, chunk_z, sections_pos) {
-        (Some(cx), Some(cz), Some(sp)) => scan_sections(buf, sp, target, cx, cz, out),
+        (Some(cx), Some(cz), Some(sp)) => scan_sections(buf, sp, targets, cx, cz, out),
         _ => Some(()),
     }
 }

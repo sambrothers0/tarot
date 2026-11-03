@@ -1,7 +1,7 @@
-import { BLOCK_TYPES } from '../../lib/blockTypes'
 import { dimensionLabel } from '../../lib/scanOptions'
 import type { Dimension, Phase, SourceKind } from '../../lib/scanOptions'
 import type { SaveInput } from '../../workers/source'
+import { BlockTypePicker } from './BlockTypePicker'
 import { DimensionToggle } from './DimensionToggle'
 import { SavePicker } from './SavePicker'
 
@@ -9,8 +9,10 @@ type Props = {
   sourceKind: SourceKind
   onSourceKind: (kind: SourceKind) => void
   onSave: (save: SaveInput | null) => void
-  blockType: string
-  onBlockType: (value: string) => void
+  blockTypes: string[]
+  onBlockTypes: (blockTypes: string[]) => void
+  blockDraft: string
+  onBlockDraft: (draft: string) => void
   dimension: Dimension
   onDimension: (dimension: Dimension) => void
   phase: Phase
@@ -30,15 +32,17 @@ const submitLabel = (phase: Phase, usingSample: boolean) =>
         ? 'Scan the sample world'
         : 'Scan world'
 
-// What to scan and where: the save, the block type, the dimension, and the
+// What to scan and where: the save, the block types, the dimension, and the
 // button that starts it. All of it is controlled by the page — the form holds no
 // state of its own.
 export function ScanForm({
   sourceKind,
   onSourceKind,
   onSave,
-  blockType,
-  onBlockType,
+  blockTypes,
+  onBlockTypes,
+  blockDraft,
+  onBlockDraft,
   dimension,
   onDimension,
   phase,
@@ -59,30 +63,13 @@ export function ScanForm({
         disabled={busy}
       />
 
-      <label className="grid grid-cols-1 gap-2 text-left">
-        <span className="text-xs font-medium uppercase tracking-[0.35em] text-violet-200/70">
-          Block type
-        </span>
-        {/* The border is the field's only boundary, so it holds 3:1 against the
-            card (WCAG 1.4.11); white/35 is the faintest that does. */}
-        <input
-          type="text"
-          value={blockType}
-          onChange={(event) => onBlockType(event.target.value)}
-          placeholder="minecraft:nether_portal"
-          list="block-types"
-          autoComplete="off"
-          spellCheck={false}
-          className="rounded-2xl border border-white/35 bg-white/5 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-400 focus-visible:border-violet-300/60 focus-visible:ring-2 focus-visible:ring-violet-300"
-        />
-        <datalist id="block-types">
-          {BLOCK_TYPES.map((block) => (
-            <option key={block.id} value={block.id}>
-              {block.name}
-            </option>
-          ))}
-        </datalist>
-      </label>
+      <BlockTypePicker
+        blockTypes={blockTypes}
+        onBlockTypes={onBlockTypes}
+        draft={blockDraft}
+        onDraft={onBlockDraft}
+        disabled={busy}
+      />
 
       <div className="grid grid-cols-1 gap-2 text-left">
         {/* The stops are icons, so the chosen one is also named in words. The

@@ -136,3 +136,59 @@ def test_rename(client: TestClient) -> None:
     assert client.patch(f"/scans/{scan_id}", json={"name": "  "}, headers=auth(alice)).json()["name"] is None
     assert client.patch(f"/scans/{scan_id}", json={"name": "x"}, headers=auth(bob)).status_code == 404
     assert client.patch(f"/scans/{scan_id}", json={"name": "x" * 101}, headers=auth(alice)).status_code == 422
+
+
+def multi_body(**overrides) -> dict:
+    return scan_body(
+        count=5,
+        truncated=True,
+        blocks=[
+            {"block_type": "minecraft:nether_portal", "count": 3, "truncated": False},
+            {"block_type": "minecraft:obsidian", "count": 2, "truncated": True},
+        ],
+        preview=[[1, 2, 0], [3, 4, 1]],
+    ) | overrides
+
+
+def test_keeps_several_blocks(client: TestClient) -> None:
+    token = sign_in(client)["token"]
+    res = client.post("/scans", json=multi_body(), headers=auth(token))
+    assert res.status_code == 201, res.text
+    saved = res.json()
+    assert [b["block_type"] for b in saved["blocks"]] == [
+        "minecraft:nether_portal",
+        "minecraft:obsidian",
+    ]
+    assert saved["blocks"][1] == {"block_type": "minecraft:obsidian", "count": 2, "truncated": True}
+    assert saved["preview"] == [[1, 2, 0], [3, 4, 1]]
+    listed = client.get("/scans", headers=auth(token)).json()
+    assert listed[0]["blocks"] == saved["blocks"]
+
+
+def test_a_single_block_scan_has_no_blocks(client: TestClient) -> None:
+    token = sign_in(client)["token"]
+    saved = client.post("/scans", json=scan_body(), headers=auth(token)).json()
+    assert saved["blocks"] is None
+
+
+def test_rejects_inconsistent_blocks(client: TestClient) -> None:
+    token = sign_in(client)["token"]
+    portal = {"block_type": "minecraft:nether_portal", "count": 3, "truncated": False}
+    for bad in (
+        # One block goes in block_type, not a list of one.
+        {"blocks": [portal], "count": 3, "truncated": False},
+        {"blocks": [portal, portal], "count": 6, "truncated": False},
+        {"block_type": "minecraft:obsidian"},
+        {"count": 4},
+        {"truncated": False},
+        {"blocks": [portal] + [
+            {"block_type": f"minecraft:b{i}", "count": 0, "truncated": False} for i in range(6)
+        ], "count": 3, "truncated": False},
+        {"preview": [[1, 2, 2]]},
+        {"preview": [[1, 2, 6]]},
+    ):
+        res = client.post("/scans", json=multi_body(**bad), headers=auth(token))
+        assert res.status_code == 422, bad
+    # A single-block scan can't point its preview past block 0.
+    res = client.post("/scans", json=scan_body(preview=[[1, 2, 1]]), headers=auth(token))
+    assert res.status_code == 422

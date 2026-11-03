@@ -16,7 +16,16 @@ export interface PoolWorker {
   onerror: ((event: ErrorEvent) => void) | null
 }
 
-export type ScanTotals = { count: number; coords: Int32Array; truncated: boolean }
+// One entry per block type, in the order they were asked for. `coords` holds
+// every kept triple grouped by block — block 0's run first — and `kept[i]` is
+// how many triples belong to block `i`. `count` is always the true total.
+export type ScanTotals = {
+  layers: { count: number; truncated: boolean }[]
+  kept: number[]
+  coords: Int32Array
+}
+
+type RegionResult = { counts: ArrayLike<number>; lengths: ArrayLike<number>; coords: Int32Array }
 
 /**
  * Read region files and scan them across the pool.
@@ -31,10 +40,15 @@ export type ScanTotals = { count: number; coords: Int32Array; truncated: boolean
  * one inflated region per worker. Out of a folder the stored form is already
  * the inflated one and nothing is duplicated, which makes that case the
  * cheaper of the two despite the larger buffers.
+ *
+ * Every region is scanned once for all `layerCount` block types; `limit` caps
+ * the coordinates kept *per type*, so a dense block filling its cap never
+ * crowds out a rare one scanned alongside it.
  */
 export function runPool(
   workers: PoolWorker[],
   regions: SaveEntry[],
+  layerCount: number,
   limit: number,
   onProgress: (done: number, total: number) => void,
 ): Promise<ScanTotals> {
@@ -46,7 +60,7 @@ export function runPool(
     const queued: { index: number; member: RawMember }[] = []
     // Results that arrived before their turn. Bounded by the pool size, since
     // only that many scans can be in flight.
-    const pending = new Map<number, { count: number; coords: Int32Array }>()
+    const pending = new Map<number, RegionResult>()
 
     let nextToRead = 0
     let nextToAggregate = 0
@@ -55,9 +69,9 @@ export function runPool(
     let settled = false
     let residentWaiter: (() => void) | null = null
 
-    let count = 0
-    let keptTriples = 0
-    const kept: Int32Array[] = []
+    const counts = new Array<number>(layerCount).fill(0)
+    const keptTriples = new Array<number>(layerCount).fill(0)
+    const kept: Int32Array[][] = Array.from({ length: layerCount }, () => [])
 
     // The reader parks on this when the read-ahead bound is reached; every
     // completed scan (and any failure) wakes it.
@@ -82,25 +96,37 @@ export function runPool(
         if (!result) return
         pending.delete(nextToAggregate)
         nextToAggregate += 1
-        count += result.count
-        const room = limit - keptTriples
-        if (room > 0 && result.coords.length > 0) {
-          const take = Math.min(room * 3, result.coords.length)
-          kept.push(take === result.coords.length ? result.coords : result.coords.subarray(0, take))
-          keptTriples += take / 3
+        // The worker's runs sit back to back in layer order.
+        let offset = 0
+        for (let layer = 0; layer < layerCount; layer++) {
+          counts[layer] += result.counts[layer] ?? 0
+          const run = (result.lengths[layer] ?? 0) * 3
+          const room = limit - keptTriples[layer]
+          if (room > 0 && run > 0) {
+            const take = Math.min(room * 3, run)
+            kept[layer].push(result.coords.subarray(offset, offset + take))
+            keptTriples[layer] += take / 3
+          }
+          offset += run
         }
       }
     }
 
     const finish = () => {
       settled = true
-      const coords = new Int32Array(keptTriples * 3)
+      const coords = new Int32Array(keptTriples.reduce((a, b) => a + b, 0) * 3)
       let offset = 0
-      for (const part of kept) {
-        coords.set(part, offset)
-        offset += part.length
+      for (const parts of kept) {
+        for (const part of parts) {
+          coords.set(part, offset)
+          offset += part.length
+        }
       }
-      resolve({ count, coords, truncated: count > keptTriples })
+      resolve({
+        layers: counts.map((count, layer) => ({ count, truncated: count > keptTriples[layer] })),
+        kept: keptTriples,
+        coords,
+      })
     }
 
     const pump = () => {
@@ -113,10 +139,10 @@ export function runPool(
           data: task.member.data,
           method: task.member.method,
           size: task.member.uncompressedSize,
-          // Never ask for coordinates the cap has no room for. This only ever
-          // over-estimates (the cap fills as results aggregate), so nothing is
-          // lost — but once it reaches 0 a dense block costs pure counting.
-          limit: Math.max(0, limit - keptTriples),
+          // Never ask for coordinates a cap has no room for. This only ever
+          // over-estimates (the caps fill as results aggregate), so nothing is
+          // lost — but once one reaches 0 its dense block costs pure counting.
+          limits: keptTriples.map((k) => Math.max(0, limit - k)),
         }
         // Transfer: the region bytes are the worker's now, no copy.
         worker.postMessage(message, [task.member.data.buffer])
@@ -132,7 +158,7 @@ export function runPool(
         }
         if (data.type !== 'result' || settled) return
 
-        pending.set(data.index, { count: data.count, coords: data.coords })
+        pending.set(data.index, { counts: data.counts, lengths: data.lengths, coords: data.coords })
         idle.push(worker)
         resident -= 1
         done += 1

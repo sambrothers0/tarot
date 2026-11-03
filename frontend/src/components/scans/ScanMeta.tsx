@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
 import ArchiveIcon from '../../assets/icons/archive.svg?react'
 import FolderIcon from '../../assets/icons/folder.svg?react'
-import { blockName } from '../../lib/blockTypes'
+import { blockLabel, blockName, layersTitle } from '../../lib/blockTypes'
 import { dimensionLabel } from '../../lib/scanOptions'
+import { LayerSwatch } from '../worldmap/LayerSwatch'
+import type { MapLayer } from '../worldmap/types'
 import { DIMENSION_TONES } from './dimensionTones'
 import type { Dimension, SourceKind } from '../../lib/scanOptions'
 
@@ -21,22 +23,25 @@ export function DimensionBadge({ dimension }: { dimension: Dimension }) {
 
 /**
  * The scan's title: the name it was given, else the block's English name, else
- * (modded blocks) the ID. The line under it says which block it was. `action`
- * sits right after the title text — the rename control, so it reads as acting
- * on the name.
+ * (modded blocks) the ID — or, for several blocks, the first and how many
+ * more. The line under it says which blocks it was: the ID for one, and for
+ * several each block with the glyph its pins wear. `action` sits right after
+ * the title text — the rename control, so it reads as acting on the name.
  */
 export function BlockTitle({
-  blockType,
+  layers,
   name,
   large,
   action,
 }: {
-  blockType: string
+  layers: MapLayer[]
   name?: string | null
   large?: boolean
   action?: ReactNode
 }) {
+  const blockType = layers[0]?.blockType ?? ''
   const english = blockName(blockType)
+  const multi = layers.length > 1
   return (
     <span className="grid min-w-0">
       <span className="flex min-w-0 items-center gap-1">
@@ -45,11 +50,20 @@ export function BlockTitle({
             large ? 'text-xl sm:text-2xl' : 'text-base'
           }`}
         >
-          {name || english || blockType}
+          {name || layersTitle(layers)}
         </span>
         {action}
       </span>
-      {name ? (
+      {multi ? (
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-slate-400">
+          {layers.map((layer, i) => (
+            <span key={layer.blockType} className="inline-flex min-w-0 items-center gap-1" title={layer.blockType}>
+              <LayerSwatch layer={i} layerCount={layers.length} size={10} />
+              <span className="truncate">{blockLabel(layer.blockType)}</span>
+            </span>
+          ))}
+        </span>
+      ) : name ? (
         <span className="truncate text-xs text-slate-400">{english ?? blockType}</span>
       ) : english ? (
         <span className="truncate font-mono text-[11px] text-slate-400">{blockType}</span>

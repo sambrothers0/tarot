@@ -6,7 +6,7 @@ mod common;
 use common::*;
 use tarot_scanner::nbt::MatchSink;
 use tarot_scanner::region::{self, ExternalChunks};
-use tarot_scanner::{scan_region, ExternalChunks as JsExternalChunks};
+use tarot_scanner::{scan_region, ExternalChunks as JsExternalChunks, ScanResult};
 
 const STONE: &str = "minecraft:stone";
 const AIR: &str = "minecraft:air";
@@ -19,6 +19,11 @@ fn scan(region: &[u8], externals: &ExternalChunks, target: &str) -> (f64, Vec<[i
     let count = sink.count();
     let coords = sink.into_coords().as_chunks::<3>().0.to_vec();
     (count, coords)
+}
+
+/// The JS surface for a single block, the way the app calls it with one type.
+fn js_scan(region: &[u8], externals: &JsExternalChunks, target: &str, limit: u32) -> ScanResult {
+    scan_region(region, externals, vec![target.to_string()], &[limit])
 }
 
 fn no_externals() -> ExternalChunks {
@@ -423,29 +428,29 @@ fn portal_region() -> Vec<u8> {
 #[test]
 fn js_api_namespaces_bare_block_ids() {
     let externals = JsExternalChunks::new();
-    let bare = scan_region(&portal_region(), &externals, "nether_portal", 100);
-    let full = scan_region(&portal_region(), &externals, PORTAL, 100);
-    assert_eq!(bare.count(), 4.0);
-    assert_eq!(full.count(), 4.0);
+    let bare = js_scan(&portal_region(), &externals, "nether_portal", 100);
+    let full = js_scan(&portal_region(), &externals, PORTAL, 100);
+    assert_eq!(bare.counts(), vec![4.0]);
+    assert_eq!(full.counts(), vec![4.0]);
 }
 
 #[test]
 fn js_api_truncates_coordinates_but_not_the_count() {
     let externals = JsExternalChunks::new();
-    let mut result = scan_region(&portal_region(), &externals, PORTAL, 2);
-    assert_eq!(result.count(), 4.0);
-    assert!(result.truncated());
+    let mut result = js_scan(&portal_region(), &externals, PORTAL, 2);
+    assert_eq!(result.counts(), vec![4.0]);
+    assert_eq!(result.lengths(), vec![2]);
     assert_eq!(result.take_coords(), vec![0, 0, 0, 1, 0, 0]);
     // The buffer is moved out, not copied: a second take is empty.
     assert!(result.take_coords().is_empty());
 
-    let mut exact = scan_region(&portal_region(), &externals, PORTAL, 4);
-    assert!(!exact.truncated());
+    let mut exact = js_scan(&portal_region(), &externals, PORTAL, 4);
+    assert_eq!(exact.lengths(), vec![4]);
     assert_eq!(exact.take_coords().len(), 12);
 
-    let mut none = scan_region(&portal_region(), &externals, PORTAL, 0);
-    assert_eq!(none.count(), 4.0);
-    assert!(none.truncated());
+    let mut none = js_scan(&portal_region(), &externals, PORTAL, 0);
+    assert_eq!(none.counts(), vec![4.0]);
+    assert_eq!(none.lengths(), vec![0]);
     assert!(none.take_coords().is_empty());
 }
 
@@ -455,8 +460,8 @@ fn js_api_reads_sidecars_inserted_by_name() {
     let (builder, (name, bytes)) = RegionBuilder::new().external(0, &nbt, Compression::Gzip);
     let mut externals = JsExternalChunks::new();
     externals.insert(name, &bytes);
-    let result = scan_region(&builder.build(), &externals, PORTAL, 0);
-    assert_eq!(result.count(), 4096.0);
+    let result = js_scan(&builder.build(), &externals, PORTAL, 0);
+    assert_eq!(result.counts(), vec![4096.0]);
 }
 
 #[test]
@@ -468,9 +473,121 @@ fn js_api_handles_empty_and_tiny_inputs() {
         &[0u8; SECTOR][..],
         &[0u8; 2 * SECTOR][..],
     ] {
-        let mut result = scan_region(bytes, &externals, PORTAL, 10);
-        assert_eq!(result.count(), 0.0);
-        assert!(!result.truncated());
+        let mut result = js_scan(bytes, &externals, PORTAL, 10);
+        assert_eq!(result.counts(), vec![0.0]);
+        assert_eq!(result.lengths(), vec![0]);
         assert!(result.take_coords().is_empty());
     }
+}
+
+// --- Several blocks in one pass ----------------------------------------------
+
+const OBSIDIAN: &str = "minecraft:obsidian";
+
+/// A portal standing in its frame, flattened into one section: obsidian at
+/// indices 0..4, portal at 4..8, air everywhere else.
+fn framed_portal_region() -> Vec<u8> {
+    let mut indices = vec![0usize; 4096];
+    for i in 0..4 {
+        indices[i] = 2;
+        indices[4 + i] = 1;
+    }
+    RegionBuilder::new()
+        .chunk(
+            0,
+            &chunk(
+                0,
+                0,
+                vec![section(0, &[AIR, PORTAL, OBSIDIAN], Some(&indices))],
+            ),
+            Compression::Zlib,
+        )
+        // A second chunk that is solid obsidian, with no packed data at all.
+        .chunk(
+            1,
+            &chunk(1, 0, vec![section(0, &[OBSIDIAN], None)]),
+            Compression::Zlib,
+        )
+        .build()
+}
+
+#[test]
+fn one_pass_sorts_each_block_into_its_own_sink() {
+    let region = framed_portal_region();
+    let targets: [&[u8]; 2] = [PORTAL.as_bytes(), OBSIDIAN.as_bytes()];
+    let mut sinks = [MatchSink::new(10_000), MatchSink::new(10_000)];
+    region::scan_region_multi(&region, &no_externals(), &targets, &mut sinks);
+    let [portal, obsidian] = sinks;
+    assert_eq!(portal.count(), 4.0);
+    assert_eq!(obsidian.count(), 4.0 + 4096.0);
+    assert_eq!(
+        portal.into_coords(),
+        vec![4, 0, 0, 5, 0, 0, 6, 0, 0, 7, 0, 0]
+    );
+    assert_eq!(
+        &obsidian.into_coords()[..12],
+        &[0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0]
+    );
+}
+
+#[test]
+fn several_blocks_agree_with_scanning_each_alone() {
+    let region = framed_portal_region();
+    let targets: [&[u8]; 3] = [OBSIDIAN.as_bytes(), STONE.as_bytes(), PORTAL.as_bytes()];
+    let mut sinks = [
+        MatchSink::new(usize::MAX / 3),
+        MatchSink::new(usize::MAX / 3),
+        MatchSink::new(usize::MAX / 3),
+    ];
+    region::scan_region_multi(&region, &no_externals(), &targets, &mut sinks);
+    for (sink, target) in sinks.into_iter().zip([OBSIDIAN, STONE, PORTAL]) {
+        let (count, alone) = scan(&region, &no_externals(), target);
+        assert_eq!(sink.count(), count, "{target}");
+        assert_eq!(
+            sink.into_coords().as_chunks::<3>().0.to_vec(),
+            alone,
+            "{target}"
+        );
+    }
+}
+
+#[test]
+fn js_api_returns_runs_back_to_back_with_their_own_limits() {
+    let externals = JsExternalChunks::new();
+    let mut result = scan_region(
+        &framed_portal_region(),
+        &externals,
+        vec!["nether_portal".into(), OBSIDIAN.into()],
+        &[2, 3],
+    );
+    assert_eq!(result.counts(), vec![4.0, 4100.0]);
+    assert_eq!(result.lengths(), vec![2, 3]);
+    assert_eq!(
+        result.take_coords(),
+        vec![4, 0, 0, 5, 0, 0, 0, 0, 0, 1, 0, 0, 2, 0, 0]
+    );
+}
+
+#[test]
+fn js_api_tolerates_missing_limits_and_duplicate_targets() {
+    let externals = JsExternalChunks::new();
+    let mut result = scan_region(
+        &framed_portal_region(),
+        &externals,
+        vec![PORTAL.into(), PORTAL.into(), OBSIDIAN.into()],
+        &[10],
+    );
+    // The duplicate never matches; a target with no limit still counts.
+    assert_eq!(result.counts(), vec![4.0, 0.0, 4100.0]);
+    assert_eq!(result.lengths(), vec![4, 0, 0]);
+    assert_eq!(result.take_coords().len(), 12);
+}
+
+#[test]
+fn js_api_with_no_targets_finds_nothing() {
+    let externals = JsExternalChunks::new();
+    let mut result = scan_region(&framed_portal_region(), &externals, vec![], &[]);
+    assert!(result.counts().is_empty());
+    assert!(result.lengths().is_empty());
+    assert!(result.take_coords().is_empty());
 }
