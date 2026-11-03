@@ -79,10 +79,17 @@ class SavedScan(Base):
     source_name: Mapped[str] = mapped_column(String(255))
     scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    # The world's true total; the blob holds at most the frontend's MAX_MATCHES.
+    # The world's true total across every block scanned for; the blob holds
+    # at most the frontend's MAX_MATCHES per block.
     count: Mapped[int] = mapped_column(BigInteger)
     truncated: Mapped[bool] = mapped_column(Boolean)
-    # A few dozen [x, z] pairs, so the list can draw thumbnails without blobs.
+    # A scan of several blocks at once: [{block_type, count, truncated}] per
+    # block, in the order they were scanned, `block_type` above being the
+    # first. Null for a scan of one block, which `block_type`, `count` and
+    # `truncated` already describe — and for every scan kept before this.
+    blocks: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    # A few dozen [x, z] pairs, so the list can draw thumbnails without blobs;
+    # [x, z, block] when the scan holds several blocks.
     preview: Mapped[list[list[int]]] = mapped_column(JSON)
     # Deferred: listing scans must never pull every blob off the database.
     coords: Mapped[bytes] = deferred(mapped_column(LargeBinary, nullable=False))

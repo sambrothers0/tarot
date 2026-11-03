@@ -50,9 +50,9 @@ the session immediately. Tarot does not use cookies.
 
 ## Readings
 
-If you choose to keep a scan's result (a "reading") in your account, Tarot stores the block type,
-dimension, the name of the save file or folder, when the scan ran, how many
-blocks it found, the coordinates found (up to the first 100,000), and any name
+If you choose to keep a scan's result (a "reading") in your account, Tarot stores the block types
+searched for, the dimension, the name of the save file or folder, when the scan ran, how many
+of each block it found, the coordinates found (up to the first 100,000 of each), and any name
 you give the reading, so you can view them later. This only happens when you press
 Keep while signed in; nothing is kept automatically. Deleting a reading
 removes it from the database immediately.

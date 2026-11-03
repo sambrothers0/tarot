@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { columnAt, columnPositions, describeColumn, sameColumn } from './columns'
+import { columnAt, columnPositions, describeColumn, layerPins, sameColumn } from './columns'
+import { layerStyle } from './layers'
 import { CoordinateReadout, CopyToast, Crosshair, KeyboardHint, ZoomControls } from './MapHud'
 import { MapTooltip } from './MapTooltip'
 import { drawMap } from './render'
-import type { BlockMatch, Hovered, View } from './types'
+import type { BlockMatch, Hovered, MapLayer, View } from './types'
 import { useCopyToast } from './useCopyToast'
 import { useInertia } from './useInertia'
 import { clamp, fitView, MAX_PPB, MIN_PPB, projection } from './view'
 
-export type { BlockMatch } from './types'
+export type { BlockMatch, MapLayer } from './types'
 
 // The map is one canvas: everything visible is drawn imperatively from refs, and
 // React only renders the HTML chrome floating on top of it. Live view and hover
@@ -37,18 +38,33 @@ type Drag = {
 
 type Props = {
   matches: BlockMatch[]
+  // The scan's block types, in order; `match.layer` indexes into this.
+  layers: MapLayer[]
+  // Layers switched off in the legend. Their pins go, and so does everything
+  // that reads pins — hover, copy, N/P and Fit — so the map behaves as if
+  // those blocks had never been scanned. The view stays where it is.
+  hidden?: ReadonlySet<number>
 }
 
-export function WorldMap({ matches }: Props) {
+const NONE_HIDDEN: ReadonlySet<number> = new Set()
+
+export function WorldMap({ matches, layers, hidden = NONE_HIDDEN }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const viewRef = useRef<View>({ cx: 0, cz: 0, ppb: 0.5 })
   const sizeRef = useRef({ w: 0, h: 0 })
   const dprRef = useRef(1)
+  // The visible matches: every match, less the hidden layers.
   const matchesRef = useRef<BlockMatch[]>(matches)
-  // What the canvas actually plots, derived once per result in the effect below.
+  // Distinct columns in scan order, the stops N/P step through.
   const pinsRef = useRef<Int32Array>(new Int32Array(0))
+  // What the canvas actually plots: per layer, its distinct columns. Both are
+  // derived once per result (and per legend toggle) in the effect below.
+  const layerPinsRef = useRef<Int32Array[]>([])
+  const layersRef = useRef<MapLayer[]>(layers)
+  // Which result the view was last fitted to, so a legend toggle doesn't refit.
+  const fittedForRef = useRef<BlockMatch[] | null>(null)
   const didFitRef = useRef(false)
   const rafRef = useRef<number | null>(null)
   const dragRef = useRef<Drag | null>(null)
@@ -97,11 +113,13 @@ export function WorldMap({ matches }: Props) {
     // Auto-fit on the first frame after the matches change. Done here (inside an
     // rAF/observer callback) rather than in an effect so its setState is allowed.
     if (!didFitRef.current) fit()
+    const layerCount = layersRef.current.length
     drawMap(ctx, {
       size,
       dpr: dprRef.current,
       view: viewRef.current,
-      pins: pinsRef.current,
+      pins: layerPinsRef.current,
+      styles: Array.from({ length: layerCount }, (_, i) => layerStyle(i, layerCount)),
       hovered: hoveredRef.current,
     })
   }, [fit])
@@ -149,15 +167,23 @@ export function WorldMap({ matches }: Props) {
     return () => observer.disconnect()
   }, [draw])
 
-  // Re-fit whenever a fresh set of matches arrives. Effect body only touches
+  // Re-derive the pins whenever the matches or the hidden layers change, and
+  // re-fit only when a fresh set of matches arrives. Effect body only touches
   // refs and schedules a frame — the fit (and its setState) runs inside draw.
   useEffect(() => {
-    matchesRef.current = matches
-    pinsRef.current = columnPositions(matches)
+    const visible = hidden.size === 0 ? matches : matches.filter((m) => !hidden.has(m.layer))
+    matchesRef.current = visible
+    layersRef.current = layers
+    pinsRef.current = columnPositions(visible)
+    layerPinsRef.current = layerPins(visible, layers.length)
+    pinIndexRef.current = -1
     hoveredRef.current = null
-    didFitRef.current = false
+    if (fittedForRef.current !== matches) {
+      fittedForRef.current = matches
+      didFitRef.current = false
+    }
     scheduleDraw()
-  }, [matches, scheduleDraw])
+  }, [matches, layers, hidden, scheduleDraw])
 
   // Cancel any in-flight frame when the map unmounts. We MUST null the ref after
   // cancelling: under StrictMode the component mounts, unmounts, then remounts,
@@ -307,10 +333,10 @@ export function WorldMap({ matches }: Props) {
 
     if (event.key.toLowerCase() === 'n' || event.key.toLowerCase() === 'p') {
       if (column) {
-        message = `Location ${(pinIndexRef.current + 1).toLocaleString()} of ${count.toLocaleString()}: ${describeColumn(column)}`
+        message = `Location ${(pinIndexRef.current + 1).toLocaleString()} of ${count.toLocaleString()}: ${describeColumn(column, layersRef.current)}`
       }
     } else if (message == null && column && !sameColumn(before, column)) {
-      message = describeColumn(column)
+      message = describeColumn(column, layersRef.current)
     }
     if (message != null) setAnnouncement(message)
   }
@@ -405,7 +431,7 @@ export function WorldMap({ matches }: Props) {
         tabIndex={0}
         role="application"
         aria-roledescription="map"
-        aria-label={`Map of ${matches.length.toLocaleString()} ${matches.length === 1 ? 'match' : 'matches'}`}
+        aria-label={mapLabel(matches, layers, hidden)}
         aria-describedby={helpId}
         className={`absolute inset-0 h-full w-full touch-none [outline-offset:-2px] active:cursor-grabbing ${
           hovered ? 'cursor-pointer' : 'cursor-grab'
@@ -430,15 +456,16 @@ export function WorldMap({ matches }: Props) {
       {keyboard ? <Crosshair /> : null}
       {keyboard ? <KeyboardHint /> : null}
       {readout ? <CoordinateReadout x={readout.x} z={readout.z} /> : null}
-      {hovered ? <MapTooltip hovered={hovered} keyboard={keyboard} /> : null}
+      {hovered ? <MapTooltip hovered={hovered} layers={layers} keyboard={keyboard} /> : null}
       {toast ? <CopyToast toast={toast} /> : null}
 
       {/* Screen-reader side. The help is what the canvas is described by; the
           two status regions stay mounted so a change in them is announced. */}
       <p id={helpId} className="sr-only">
         Arrow keys pan, plus and minus zoom, 0 fits every match. N and P step to the next and
-        previous location. Enter copies the lowest block of the location under the crosshair.
-        For the full list, use Copy coordinates as JSON.
+        previous location. Enter copies the lowest block of the location under the crosshair
+        {layers.length > 1 ? ', of the first block type listed there' : ''}. For the full list,
+        use Copy coordinates as JSON.
       </p>
       <p role="status" className="sr-only">
         {announcement}
@@ -448,4 +475,16 @@ export function WorldMap({ matches }: Props) {
       </p>
     </div>
   )
+}
+
+// The canvas's name: how many matches it plots, and of what when it plots more
+// than one block type.
+function mapLabel(matches: BlockMatch[], layers: MapLayer[], hidden: ReadonlySet<number>): string {
+  const plural = (n: number) => `${n.toLocaleString()} ${n === 1 ? 'match' : 'matches'}`
+  if (layers.length <= 1) return `Map of ${plural(matches.length)}`
+  const shown = layers.length - hidden.size
+  const kinds = `${layers.length} block types`
+  return hidden.size === 0
+    ? `Map of ${plural(matches.length)} across ${kinds}`
+    : `Map of ${plural(matches.length)} across ${kinds}, ${shown} shown`
 }

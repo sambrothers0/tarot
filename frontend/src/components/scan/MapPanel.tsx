@@ -1,10 +1,13 @@
 import type { Ref } from 'react'
 import { PortalLoader } from '../../assets/PortalLoader'
-import type { BlockMatch } from '../worldmap/types'
+import { MapLegend } from '../worldmap/MapLegend'
+import { useHiddenLayers } from '../worldmap/useHiddenLayers'
+import type { BlockMatch, MapLayer } from '../worldmap/types'
 import { WorldMap } from '../worldmap/WorldMap'
 
 type Props = {
   matches: BlockMatch[] | null
+  layers: MapLayer[]
   busy: boolean
   ref?: Ref<HTMLElement>
 }
@@ -18,8 +21,12 @@ export const MAP_ID = 'map'
 // Sits under the form at 90% of the smaller viewport side, snapped down to whole
 // blocks in `index.css`. Square-cornered on purpose, frame and pane alike: it
 // is a block of obsidian, not a card.
-export function MapPanel({ matches, busy, ref }: Props) {
+// A scan of several blocks gets its legend under the frame, outside the pane:
+// the pane is the portal and stays clear of chrome that isn't the map's own.
+export function MapPanel({ matches, layers, busy, ref }: Props) {
+  const { hidden, toggle } = useHiddenLayers(matches)
   return (
+    <>
     <section
       ref={ref}
       id={MAP_ID}
@@ -29,7 +36,7 @@ export function MapPanel({ matches, busy, ref }: Props) {
     >
       <div className="portal-pane relative aspect-square w-full overflow-hidden">
         {matches ? (
-          <WorldMap matches={matches} />
+          <WorldMap matches={matches} layers={layers} hidden={hidden} />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
             {busy ? (
@@ -49,5 +56,9 @@ export function MapPanel({ matches, busy, ref }: Props) {
         ) : null}
       </div>
     </section>
+    {matches && !busy ? (
+      <MapLegend layers={layers} hidden={hidden} onToggle={toggle} className="mx-auto mt-5 max-w-2xl" />
+    ) : null}
+    </>
   )
 }

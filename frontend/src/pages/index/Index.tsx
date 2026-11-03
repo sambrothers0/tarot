@@ -10,14 +10,10 @@ import { ScanForm } from '../../components/scan/ScanForm'
 import { ScanProgress } from '../../components/scan/ScanProgress'
 import type { SaveState } from '../../components/scan/SaveScanButton'
 import { ScanSummary } from '../../components/scan/ScanSummary'
-import {
-  DEFAULT_BLOCK,
-  DEFAULT_DIMENSION,
-  dimensionLabel,
-  normalizeBlockType,
-} from '../../lib/scanOptions'
+import { DEFAULT_BLOCK, DEFAULT_DIMENSION, dimensionLabel, layerTotals } from '../../lib/scanOptions'
 import type { Dimension, Phase, ScanResult, SourceKind } from '../../lib/scanOptions'
 import { accountsEnabled } from '../../lib/api'
+import { addBlockType } from '../../lib/blockTypes'
 import { reveal } from '../../lib/reveal'
 import { loadSampleWorld, SAMPLE_WORLD_DIMENSIONS } from '../../lib/sampleWorld'
 import { saveScan } from '../../lib/savedScans'
@@ -35,7 +31,8 @@ function App() {
   // or cancel the picker), the sample world is what Scan uses.
   const [selectedSave, setSelectedSave] = useState<SaveInput | null>(null)
   const usingSample = selectedSave === null
-  const [blockType, setBlockType] = useState(DEFAULT_BLOCK)
+  const [blockTypes, setBlockTypes] = useState<string[]>([DEFAULT_BLOCK])
+  const [blockDraft, setBlockDraft] = useState('')
   const [dimension, setDimension] = useState<Dimension>(DEFAULT_DIMENSION)
   const [phase, setPhase] = useState<Phase>('idle')
   const [regionsDone, setRegionsDone] = useState(0)
@@ -61,6 +58,18 @@ function App() {
   }, [phase])
 
   const handleSubmit = async () => {
+    // A block typed but never added is what the player meant to scan for too.
+    const pending = addBlockType(blockTypes, blockDraft)
+    if (pending.problem == null && pending.blockTypes !== blockTypes) {
+      setBlockTypes(pending.blockTypes)
+      setBlockDraft('')
+    }
+    const types = pending.blockTypes
+    if (types.length === 0) {
+      setError('Add a block type to scan for — nether_portal, say.')
+      return
+    }
+
     // Don't download the sample to find a dimension it doesn't have.
     if (usingSample && !SAMPLE_WORLD_DIMENSIONS.includes(dimension)) {
       setError(
@@ -80,7 +89,7 @@ function App() {
       // The sample is fetched here, on first use, inside the opening phase, so
       // its download is covered by the same indeterminate bar as a save's index.
       const save = selectedSave ?? (await loadSampleWorld())
-      const scan = await scanWorld(save, dimension, blockType, {
+      const scan = await scanWorld(save, dimension, types, {
         onOpened: (regionCount) => {
           // The save is open and the region count is known, so the bar can go
           // from indeterminate to real. Phase flips here, in an event callback,
@@ -97,12 +106,11 @@ function App() {
       // scrolling to it — this is the event that earns the scroll, not an effect.
       flushSync(() => {
         setResult({
-          blockType: normalizeBlockType(blockType),
+          layers: scan.layers,
           dimension,
           source: { kind: save.kind, name: save.name },
           scannedAt: new Date(),
-          count: scan.count,
-          truncated: scan.truncated,
+          ...layerTotals(scan.layers),
           matches: scan.matches,
         })
         setPhase('idle')
@@ -190,8 +198,10 @@ function App() {
                   setError(null)
                   setSelectedSave(save)
                 }}
-                blockType={blockType}
-                onBlockType={setBlockType}
+                blockTypes={blockTypes}
+                onBlockTypes={setBlockTypes}
+                blockDraft={blockDraft}
+                onBlockDraft={setBlockDraft}
                 dimension={dimension}
                 onDimension={setDimension}
                 phase={phase}
@@ -233,7 +243,12 @@ function App() {
 
         <Divider className="relative z-10 mx-auto mt-16 max-w-2xl" />
         <div className="mt-12 px-6">
-          <MapPanel ref={mapRef} matches={result?.matches ?? null} busy={busy} />
+          <MapPanel
+            ref={mapRef}
+            matches={result?.matches ?? null}
+            layers={result?.layers ?? []}
+            busy={busy}
+          />
         </div>
       </main>
 
@@ -263,7 +278,8 @@ function statusMessage(phase: Phase, dimension: Dimension, result: ScanResult | 
   if (phase === 'scanning') return `Scanning the ${dimensionLabel(dimension)}…`
   if (result == null) return ''
   const n = result.count
-  return `Scan finished: ${n.toLocaleString()} ${n === 1 ? 'match' : 'matches'}.`
+  const across = result.layers.length > 1 ? ` across ${result.layers.length} block types` : ''
+  return `Scan finished: ${n.toLocaleString()} ${n === 1 ? 'match' : 'matches'}${across}.`
 }
 
 export default App

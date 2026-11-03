@@ -1,4 +1,4 @@
-import type { BlockMatch } from '../components/worldmap/types'
+import type { BlockMatch, MapLayer } from '../components/worldmap/types'
 import type { SaveInput } from '../workers/source'
 import type { WorldScanRequest, WorldScanResponse } from '../workers/worldScan.worker'
 import { MAX_MATCHES } from './scanOptions'
@@ -14,12 +14,14 @@ export type ScanProgress = {
 // Run the save through the scan worker. The whole scan happens on this machine:
 // the coordinator worker opens the save and hands one region file at a time to a
 // pool of WebAssembly workers. Nothing is uploaded.
+// Every block in `blockTypes` is found in the same single pass over the save:
+// each chunk is inflated once and checked for all of them.
 export function scanWorld(
   save: SaveInput,
   dimension: Dimension,
-  blockType: string,
+  blockTypes: string[],
   { onOpened, onProgress }: ScanProgress,
-): Promise<{ count: number; truncated: boolean; matches: BlockMatch[] }> {
+): Promise<{ layers: MapLayer[]; matches: BlockMatch[] }> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('../workers/worldScan.worker.ts', import.meta.url), {
       type: 'module',
@@ -39,7 +41,10 @@ export function scanWorld(
       }
       worker.terminate()
       if (data.type === 'done') {
-        resolve({ count: data.count, truncated: data.truncated, matches: unpack(data.coords) })
+        resolve({
+          layers: data.layers.map((layer, i) => ({ blockType: blockTypes[i], ...layer })),
+          matches: unpack(data.coords, data.kept),
+        })
       } else {
         reject(new Error(data.message))
       }
@@ -53,7 +58,7 @@ export function scanWorld(
       type: 'scan',
       save,
       dimension,
-      blockType,
+      blockTypes,
       limit: MAX_MATCHES,
     }
     worker.postMessage(request)
@@ -62,11 +67,17 @@ export function scanWorld(
 
 // The scanner returns a flat run of x,y,z triples — building objects per match
 // inside wasm and marshalling them out is far slower than one Int32Array. Unpack
-// once, here, so nothing downstream has to know about the packed form.
-export function unpack(coords: Int32Array): BlockMatch[] {
+// once, here, so nothing downstream has to know about the packed form. The
+// runs sit back to back by layer, `kept[i]` triples for layer `i`; with no
+// `kept` the whole run is layer 0.
+export function unpack(coords: Int32Array, kept: number[] = [coords.length / 3]): BlockMatch[] {
   const matches: BlockMatch[] = new Array(coords.length / 3)
-  for (let i = 0, m = 0; i < coords.length; i += 3, m += 1) {
-    matches[m] = { x: coords[i], y: coords[i + 1], z: coords[i + 2] }
+  let m = 0
+  for (let layer = 0; layer < kept.length; layer++) {
+    for (let k = 0; k < kept[layer] && m * 3 < coords.length; k++, m++) {
+      const i = m * 3
+      matches[m] = { x: coords[i], y: coords[i + 1], z: coords[i + 2], layer }
+    }
   }
   return matches
 }

@@ -15,7 +15,7 @@ use std::io::Read;
 
 use flate2::read::{GzDecoder, ZlibDecoder};
 
-use crate::nbt::{scan_chunk, MatchSink};
+use crate::nbt::{scan_chunk_multi, MatchSink};
 
 const SECTOR_BYTES: usize = 4096;
 const LOCATION_TABLE_BYTES: usize = SECTOR_BYTES;
@@ -90,10 +90,25 @@ fn decompress_into(compression: u8, payload: &[u8], out: &mut Vec<u8>) -> bool {
 
 /// Scan every generated chunk of one region file, feeding matches to `out`.
 ///
-/// Chunks that are absent, truncated, or fail to decompress are skipped rather
-/// than aborting the whole region, mirroring how a corrupt chunk should not
-/// sink an otherwise-readable save.
+/// The single-target form of [`scan_region_multi`].
 pub fn scan_region(data: &[u8], externals: &ExternalChunks, target: &[u8], out: &mut MatchSink) {
+    scan_region_multi(data, externals, &[target], std::slice::from_mut(out));
+}
+
+/// Scan every generated chunk of one region file for several blocks at once,
+/// feeding matches of `targets[i]` to `out[i]`.
+///
+/// Every chunk is inflated once however many targets there are — inflating is
+/// most of the cost of a scan, which is why several blocks are one pass and
+/// not several. Chunks that are absent, truncated, or fail to decompress are
+/// skipped rather than aborting the whole region, mirroring how a corrupt
+/// chunk should not sink an otherwise-readable save.
+pub fn scan_region_multi(
+    data: &[u8],
+    externals: &ExternalChunks,
+    targets: &[&[u8]],
+    out: &mut [MatchSink],
+) {
     // A valid region file always carries the full 4 KiB location table; a
     // shorter file (e.g. a 0-byte placeholder) holds no chunks.
     if data.len() < LOCATION_TABLE_BYTES {
@@ -157,7 +172,7 @@ pub fn scan_region(data: &[u8], externals: &ExternalChunks, target: &[u8], out: 
         }
         // `None` means the chunk's NBT stopped parsing partway; whatever it had
         // already emitted stays, and the next chunk is unaffected.
-        let _ = scan_chunk(&chunk, target, out);
+        let _ = scan_chunk_multi(&chunk, targets, out);
     }
 }
 

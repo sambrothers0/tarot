@@ -2,8 +2,9 @@
 
 A web app for finding and visualizing every block of a given type in a Minecraft
 world. Pick a save — either a zip or the world folder itself — a dimension, and
-a block type (defaults to `minecraft:nether_portal`), and the matching
-coordinates are plotted on an interactive map.
+up to six block types (defaults to `minecraft:nether_portal`), and the matching
+coordinates are plotted on an interactive map, one colour and pin shape per
+block, all found in a single pass over the save.
 
 **The scan runs entirely in your browser.** Your save is never uploaded and the
 app itself is static files. An optional accounts API (`backend/`) handles Google
@@ -73,7 +74,7 @@ The UI runs three phases — `idle → opening → scanning` — reflected in bo
 on-page indicators and the browser tab title.
 
 `count` is always the true total; the plotted and copyable coordinate list is
-capped at 100,000, because a common block occurs hundreds of millions of times
+capped at 100,000 per block type, because a common block occurs hundreds of millions of times
 in one save and no map can draw that.
 
 ---

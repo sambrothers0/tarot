@@ -49,16 +49,34 @@ The scanner itself is careful about what it decodes. Each chunk section stores a
 palette of the block types it contains, followed by a tightly packed array
 saying which palette entry sits at each position. Reading that packed array is
 the expensive part, so Tarot checks the palette first and only unpacks a section
-when the block you asked for is actually listed in it. For something sparse like
+when a block you asked for is actually listed in it. For something sparse like
 a nether portal, the vast majority of the world is dismissed after reading a
 short list of names.
+
+You can ask for up to six blocks at once, say a portal and the obsidian around
+it. They're found together in the same single pass: each chunk is unpacked once
+and checked for every block on your list, so a second block costs far less than
+a second scan.
 
 **4. The results are drawn.** Coordinates come back as a flat run of numbers and
 land on a canvas on Minecraft's X/Z plane, with a chunk-aligned grid. Drag to
 pan, scroll to zoom, hover to read a coordinate pin, and click to copy
 it to the clipboard. The map works from the keyboard too: see below.
 
+With more than one block, each gets its own colour and pin shape. The same
+mark appears next to the block's name in the form, the result and the key
+under the map. Press a block in that key to take it off the map, which is how
+you see what a common block is hiding. Where two blocks share a spot, the
+tooltip lists both, and a click copies the lowest block of whichever you
+listed first, so a portal copies its floor and not its frame.
+
 ## Notes and limits
+
+**Up to 100,000 of each block.** The count is always the true total, but the
+map and the copied list hold the first 100,000 of each block. A common block
+like stone fills that fast; the note under the result says when it has. Copied
+JSON is a plain list for one block, and one list per block, keyed by its ID,
+for several.
 
 **Vertically stacked blocks.** If two blocks are stacked directly on top of one another, 
 they won't appear visually distinct on the map. You'll have to hover over the pin to see

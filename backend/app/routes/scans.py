@@ -75,6 +75,7 @@ def save_scan(
         scanned_at=body.scanned_at,
         count=body.count,
         truncated=body.truncated,
+        blocks=[b.model_dump() for b in body.blocks] if body.blocks else None,
         preview=[list(p) for p in body.preview],
         coords=body.coords,
         coords_bytes=size,

@@ -97,7 +97,7 @@ worst case where the ambient glow shows through a card (`#1a1030`).
 |---|---|---|
 | Body text | slate-300 | 12.2:1 |
 | Secondary text, hints, timestamps, placeholders | slate-400 | 7.0:1 |
-| Section labels ("SAVE", "BLOCK TYPE") | violet-200 at 70% | 6.9:1 |
+| Section labels ("SAVE", "BLOCK TYPES") | violet-200 at 70% | 6.9:1 |
 | Tooltip footnotes | violet-200 at 80% | 8.6:1 |
 | Map grid and axis labels (canvas) | violet-300 at 75–90% | 6.2:1 (on the vignette's brightest point) |
 | Text-field and file-picker borders | white at 35% | 3.1:1 (non-text, needs 3:1) |
@@ -111,6 +111,18 @@ Colour is never the only signal. Selected toggles are `aria-pressed` and
 selected radios are checked. Dimension badges show the dimension's name as
 text. The dimension slider's icons have the chosen dimension's name written
 next to the "Dimension" label.
+
+A scan of several blocks gives each a colour *and* a shape (circle, square,
+diamond, triangle, ring, cross), and the same glyph sits beside the block's
+written name wherever it's listed: the form's chips, the result line, the
+legend under the map and the tooltip. The six colours were validated as a
+scatter palette (every pair, not just neighbours) against the map pane:
+worst colour-blind separation ΔE 10.2, worst normal-vision ΔE 15.7, each
+3:1 or better against the pane (1.4.11). The shapes cover the one weak pair
+under tritanopia (blue and rose, ΔE 4.6). The legend's toggles are
+`aria-pressed` buttons, and the one that would empty the map is
+`aria-disabled`. The map's name says how many block types it holds and how
+many are shown, and the keyboard announcements name each block in a column.
 
 ### Motion (2.2.2, 2.3.3)
 

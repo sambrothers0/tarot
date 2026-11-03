@@ -22,13 +22,17 @@ function rng(seed: number) {
   }
 }
 
-/** What a region "contains": `count` matches at (index, i, 0). */
-const regionCount = (index: number) => (index * 7) % 5
+/**
+ * What a region "contains" of block `layer`: that many matches at
+ * (index, i, layer). Layer 0 is the single-block case the bulk of these tests
+ * run; layer 1 is denser, for the tests of several blocks at once.
+ */
+const regionCount = (index: number, layer = 0) => (layer === 0 ? (index * 7) % 5 : (index * 3) % 7)
 
-function regionCoords(index: number, limit: number): Int32Array {
-  const n = Math.min(regionCount(index), limit)
+function regionCoords(index: number, limit: number, layer = 0): Int32Array {
+  const n = Math.min(regionCount(index, layer), limit)
   const coords = new Int32Array(n * 3)
-  for (let i = 0; i < n; i++) coords.set([index, i, 0], i * 3)
+  for (let i = 0; i < n; i++) coords.set([index, i, layer], i * 3)
   return coords
 }
 
@@ -57,13 +61,21 @@ class FakeWorker implements PoolWorker {
     this.onmessage?.({ data } as MessageEvent<RegionScanResponse>)
   }
 
-  /** Answer with this region's matches, honouring the limit the pool sent. */
+  /** Answer with this region's matches per block, honouring the limits the pool sent. */
   replyResult(message: RegionRequest) {
+    const runs = message.limits.map((limit, layer) => regionCoords(message.index, limit, layer))
+    const coords = new Int32Array(runs.reduce((n, run) => n + run.length, 0))
+    let offset = 0
+    for (const run of runs) {
+      coords.set(run, offset)
+      offset += run.length
+    }
     this.reply({
       type: 'result',
       index: message.index,
-      count: regionCount(message.index),
-      coords: regionCoords(message.index, message.limit),
+      counts: Float64Array.from(message.limits, (_, layer) => regionCount(message.index, layer)),
+      lengths: Uint32Array.from(runs, (run) => run.length / 3),
+      coords,
     })
   }
 }
@@ -102,15 +114,15 @@ function randomWorkers(n: number, random: () => number, stats: { alive: number }
   )
 }
 
-/** Every region's matches, concatenated in region order, capped at `limit`. */
-function expectedCoords(total: number, limit: number): number[] {
+/** Every region's matches of one block, concatenated in region order, capped at `limit`. */
+function expectedCoords(total: number, limit: number, layer = 0): number[] {
   const all: number[] = []
-  for (let i = 0; i < total; i++) all.push(...regionCoords(i, Infinity))
+  for (let i = 0; i < total; i++) all.push(...regionCoords(i, Infinity, layer))
   return all.slice(0, limit * 3)
 }
 
-const expectedCount = (total: number) =>
-  Array.from({ length: total }, (_, i) => regionCount(i)).reduce((a, b) => a + b, 0)
+const expectedCount = (total: number, layer = 0) =>
+  Array.from({ length: total }, (_, i) => regionCount(i, layer)).reduce((a, b) => a + b, 0)
 
 describe('runPool', () => {
   it.each([
@@ -124,13 +136,13 @@ describe('runPool', () => {
       const random = rng(seed * 1000 + n * 10 + total)
       const { regions, stats } = trackedRegions(total, random)
       const workers = randomWorkers(n, random, stats)
-      const totals = await runPool(workers, regions, 1_000_000, () => {})
+      const totals = await runPool(workers, regions, 1, 1_000_000, () => {})
 
       expect(stats.peak).toBeLessThanOrEqual(n + READ_AHEAD_SLACK)
       expect(stats.reads).toBe(total)
       expect(stats.alive).toBe(0)
-      expect(totals.count).toBe(expectedCount(total))
-      expect(totals.truncated).toBe(false)
+      expect(totals.layers[0].count).toBe(expectedCount(total))
+      expect(totals.layers[0].truncated).toBe(false)
       expect([...totals.coords]).toEqual(expectedCoords(total, Infinity))
     }
   })
@@ -139,7 +151,7 @@ describe('runPool', () => {
     const stalled: { worker: FakeWorker; message: RegionRequest }[] = []
     const workers = [0, 1].map(() => new FakeWorker((worker, message) => stalled.push({ worker, message })))
     const { regions, stats } = trackedRegions(10, () => 0)
-    const done = runPool(workers, regions, 100, () => {})
+    const done = runPool(workers, regions, 1, 100, () => {})
 
     for (let i = 0; i < 20; i++) await tick()
     // Two in workers, two read ahead — and nothing more, however long we wait.
@@ -161,7 +173,7 @@ describe('runPool', () => {
       }
       await tick()
     }
-    expect((await done).count).toBe(expectedCount(10))
+    expect((await done).layers[0].count).toBe(expectedCount(10))
   })
 
   it('aggregates in region order however the workers finish, so truncation is stable', async () => {
@@ -171,9 +183,9 @@ describe('runPool', () => {
     for (const seed of [11, 12, 13, 14]) {
       const random = rng(seed)
       const { regions, stats } = trackedRegions(total, random)
-      const totals = await runPool(randomWorkers(4, random, stats), regions, limit, () => {})
-      expect(totals.count).toBe(expectedCount(total))
-      expect(totals.truncated).toBe(true)
+      const totals = await runPool(randomWorkers(4, random, stats), regions, 1, limit, () => {})
+      expect(totals.layers[0].count).toBe(expectedCount(total))
+      expect(totals.layers[0].truncated).toBe(true)
       expect(totals.coords.length).toBe(limit * 3)
       results.push([...totals.coords])
     }
@@ -184,8 +196,8 @@ describe('runPool', () => {
   it('never asks a worker for more coordinates than the cap still has room for', async () => {
     const workers = [new FakeWorker((worker, message) => worker.replyResult(message))]
     const { regions } = trackedRegions(12, () => 0)
-    const totals = await runPool(workers, regions, 5, () => {})
-    const limits = workers[0].received.map((r) => r.message.limit)
+    const totals = await runPool(workers, regions, 1, 5, () => {})
+    const limits = workers[0].received.map((r) => r.message.limits[0])
     expect(limits[0]).toBe(5)
     // Monotonically shrinking, reaching zero once the cap is full.
     for (let i = 1; i < limits.length; i++) expect(limits[i]).toBeLessThanOrEqual(limits[i - 1])
@@ -196,15 +208,15 @@ describe('runPool', () => {
   it('reports not truncated when the cap is met exactly', async () => {
     const { regions, stats } = trackedRegions(5, () => 0)
     const exact = expectedCount(5)
-    const totals = await runPool(randomWorkers(2, rng(5), stats), regions, exact, () => {})
-    expect(totals.truncated).toBe(false)
+    const totals = await runPool(randomWorkers(2, rng(5), stats), regions, 1, exact, () => {})
+    expect(totals.layers[0].truncated).toBe(false)
     expect(totals.coords.length).toBe(exact * 3)
   })
 
   it('transfers each region buffer to its worker rather than copying', async () => {
     const workers = [new FakeWorker((worker, message) => worker.replyResult(message))]
     const { regions } = trackedRegions(3, () => 0)
-    await runPool(workers, regions, 100, () => {})
+    await runPool(workers, regions, 1, 100, () => {})
     for (const { message, transfer } of workers[0].received) {
       expect(transfer).toEqual([message.data.buffer])
       expect(message.method).toBe(0)
@@ -216,7 +228,7 @@ describe('runPool', () => {
   it('reports progress once per region, ending at total', async () => {
     const progress: [number, number][] = []
     const { regions, stats } = trackedRegions(7, rng(7))
-    await runPool(randomWorkers(3, rng(8), stats), regions, 100, (done, total) =>
+    await runPool(randomWorkers(3, rng(8), stats), regions, 1, 100, (done, total) =>
       progress.push([done, total]),
     )
     expect(progress).toEqual(Array.from({ length: 7 }, (_, i) => [i + 1, 7]))
@@ -230,7 +242,7 @@ describe('runPool', () => {
       }),
     ]
     const { regions } = trackedRegions(5, () => 0)
-    await expect(runPool(workers, regions, 100, () => {})).rejects.toThrow('wasm trapped')
+    await expect(runPool(workers, regions, 1, 100, () => {})).rejects.toThrow('wasm trapped')
   })
 
   it('fails when a worker crashes', async () => {
@@ -238,7 +250,7 @@ describe('runPool', () => {
       new FakeWorker((worker) => worker.onerror?.({ message: 'out of memory' } as ErrorEvent)),
     ]
     const { regions } = trackedRegions(3, () => 0)
-    await expect(runPool(workers, regions, 100, () => {})).rejects.toThrow('out of memory')
+    await expect(runPool(workers, regions, 1, 100, () => {})).rejects.toThrow('out of memory')
   })
 
   it('fails when a region cannot be read, and stops reading', async () => {
@@ -252,7 +264,7 @@ describe('runPool', () => {
       },
     }))
     const workers = [new FakeWorker(() => {})] // never answers
-    await expect(runPool(workers, regions, 100, () => {})).rejects.toThrow('could not be read')
+    await expect(runPool(workers, regions, 1, 100, () => {})).rejects.toThrow('could not be read')
     for (let i = 0; i < 10; i++) await tick()
     expect(reads).toBe(2)
   })
@@ -261,11 +273,67 @@ describe('runPool', () => {
     const pending: { worker: FakeWorker; message: RegionRequest }[] = []
     const workers = [0, 1].map(() => new FakeWorker((worker, message) => pending.push({ worker, message })))
     const { regions } = trackedRegions(4, () => 0)
-    const run = runPool(workers, regions, 100, () => {})
+    const run = runPool(workers, regions, 1, 100, () => {})
     await tick()
     pending[0].worker.reply({ type: 'error', message: 'boom' })
     await expect(run).rejects.toThrow('boom')
     // A straggler must not throw or resolve anything.
     expect(() => pending[1].worker.replyResult(pending[1].message)).not.toThrow()
+  })
+
+  it('scans several blocks in one pass, each with its own cap, grouped by block', async () => {
+    const total = 30
+    const limit = 12
+    const results: number[][] = []
+    for (const seed of [21, 22, 23]) {
+      const random = rng(seed)
+      const { regions, stats } = trackedRegions(total, random)
+      const totals = await runPool(randomWorkers(3, random, stats), regions, 2, limit, () => {})
+      expect(stats.reads).toBe(total)
+      expect(totals.layers).toEqual([
+        { count: expectedCount(total, 0), truncated: true },
+        { count: expectedCount(total, 1), truncated: true },
+      ])
+      // Each block filled its own cap; the dense one didn't eat the other's.
+      expect(totals.kept).toEqual([limit, limit])
+      expect([...totals.coords]).toEqual([
+        ...expectedCoords(total, limit, 0),
+        ...expectedCoords(total, limit, 1),
+      ])
+      results.push([...totals.coords])
+    }
+    for (const r of results) expect(r).toEqual(results[0])
+  })
+
+  it('shrinks each block\'s limit on its own as that block fills', async () => {
+    const workers = [new FakeWorker((worker, message) => worker.replyResult(message))]
+    const { regions } = trackedRegions(12, () => 0)
+    // Layer 1 is denser: its cap fills first while layer 0 still has room.
+    const totals = await runPool(workers, regions, 2, 8, () => {})
+    const limits = workers[0].received.map((r) => r.message.limits)
+    expect(limits[0]).toEqual([8, 8])
+    const full = limits.findIndex(([, dense]) => dense === 0)
+    expect(full).toBeGreaterThan(0)
+    expect(limits[full][0]).toBeGreaterThan(0)
+    expect(totals.kept).toEqual([8, 8])
+  })
+
+  it('reports a block that never occurs as zero, untruncated', async () => {
+    const workers = [
+      new FakeWorker((worker, message) =>
+        worker.reply({
+          type: 'result',
+          index: message.index,
+          counts: Float64Array.from([regionCount(message.index), 0]),
+          lengths: Uint32Array.from([regionCount(message.index), 0]),
+          coords: regionCoords(message.index, Infinity),
+        }),
+      ),
+    ]
+    const { regions } = trackedRegions(6, () => 0)
+    const totals = await runPool(workers, regions, 2, 100, () => {})
+    expect(totals.layers[1]).toEqual({ count: 0, truncated: false })
+    expect(totals.kept[1]).toBe(0)
+    expect([...totals.coords]).toEqual(expectedCoords(6, 100))
   })
 })
